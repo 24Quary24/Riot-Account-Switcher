@@ -205,6 +205,34 @@ export class RiotApiService {
       return account.valorantStats;
     }
 
+    // CRITICAL SECURITY & ACCURACY GUARD:
+    // Verify that the currently active Riot Client session ACTUALLY belongs to this account!
+    try {
+      const activeSession = await this.detectActiveSession();
+      if (!activeSession || !activeSession.riotId) {
+        return account.valorantStats || this.getCleanDefaultValorantStats();
+      }
+
+      const activeUser = (activeSession as any).username;
+      const matchUsername =
+        activeUser &&
+        account.username &&
+        String(activeUser).toLowerCase() === account.username.toLowerCase();
+
+      const matchRiotId =
+        activeSession.riotId &&
+        (account.riotId || account.label) &&
+        activeSession.riotId.toLowerCase() === (account.riotId || account.label).toLowerCase();
+
+      if (!matchUsername && !matchRiotId) {
+        // The active session in the Riot Client belongs to a different account!
+        // NEVER steal the other account's stats.
+        return account.valorantStats || this.getCleanDefaultValorantStats();
+      }
+    } catch {
+      return account.valorantStats || this.getCleanDefaultValorantStats();
+    }
+
     const content = fs.readFileSync(lockfilePath, 'utf-8');
     const parts = content.split(':');
     if (parts.length < 5) return account.valorantStats;
@@ -588,20 +616,77 @@ export class RiotApiService {
    * Fetches authentic League of Legends summoner level, rank, LP, and match history
    * using public player lookups without requiring a private Riot Developer API key.
    */
+  /**
+   * Fetches authentic League of Legends summoner level, rank, LP, and match history
+   * using public player lookups without requiring a private Riot Developer API key.
+   * Tries multiple candidate names/tags to reliably resolve accounts.
+   */
   public async fetchPublicLeagueStats(account: RiotAccount): Promise<Partial<LeagueStats> | undefined> {
-    const riotId = account.riotId || account.label;
-    const tag = account.tagline || (account.region === 'EUW' ? 'EUW' : account.region === 'EUNE' ? 'EUNE' : 'NA1');
+    const defaultTag = account.region === 'EUW' ? 'EUW' : account.region === 'EUNE' ? 'EUNE' : 'NA1';
     const reg = (account.region || 'EUW').toLowerCase();
 
+    // Build unique search candidates in priority order
+    const candidates: Array<{ name: string; tag: string }> = [];
+    const addCand = (name?: string, tag?: string) => {
+      if (!name || !name.trim()) return;
+      const cleanName = name.trim();
+      const cleanTag = (tag || defaultTag).trim().replace(/^#/, '');
+      if (
+        !candidates.some(
+          (c) => c.name.toLowerCase() === cleanName.toLowerCase() && c.tag.toLowerCase() === cleanTag.toLowerCase()
+        )
+      ) {
+        candidates.push({ name: cleanName, tag: cleanTag });
+      }
+    };
+
+    // 1. Account Riot ID + Tagline
+    addCand(account.riotId, account.tagline);
+    // 2. Account Label + Tagline
+    addCand(account.label, account.tagline);
+    // 3. Account Label + Default Region Tag
+    addCand(account.label, defaultTag);
+    // 4. Account Riot ID + Default Region Tag
+    addCand(account.riotId, defaultTag);
+    // 5. Account Username + Default Region Tag
+    addCand(account.username, defaultTag);
+
+    // Try primary region, then alternate region if EUNE/EUW
+    const regionsToTry = [reg];
+    if (reg === 'eune') regionsToTry.push('euw');
+    else if (reg === 'euw') regionsToTry.push('eune');
+
+    for (const r of regionsToTry) {
+      for (const cand of candidates) {
+        try {
+          const stats = await this.scrapeOpggProfile(cand.name, cand.tag, r, account);
+          if (stats && stats.summonerLevel && stats.summonerLevel > 1) {
+            // Update account's resolved identity
+            account.riotId = cand.name;
+            account.tagline = cand.tag;
+            return stats;
+          }
+        } catch {}
+      }
+    }
+
+    return undefined;
+  }
+
+  private scrapeOpggProfile(
+    name: string,
+    tag: string,
+    region: string,
+    account: RiotAccount
+  ): Promise<Partial<LeagueStats> | undefined> {
     return new Promise((resolve) => {
-      const url = `https://op.gg/lol/summoners/${reg}/${encodeURIComponent(riotId)}-${encodeURIComponent(tag)}`;
-      const parsed = new URL(url);
+      const cleanName = encodeURIComponent(name);
+      const cleanTag = encodeURIComponent(tag);
+      const url = `https://op.gg/lol/summoners/${region}/${cleanName}-${cleanTag}`;
 
       const req = https.request(
+        url,
         {
-          hostname: parsed.hostname,
-          port: 443,
-          path: parsed.pathname,
           method: 'GET',
           headers: {
             'User-Agent':
@@ -616,7 +701,7 @@ export class RiotApiService {
             html += chunk;
           });
           res.on('end', () => {
-            if (res.statusCode && res.statusCode >= 400) {
+            if (!res.statusCode || res.statusCode >= 400 || res.statusCode === 308) {
               resolve(undefined);
               return;
             }
