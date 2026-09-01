@@ -1,0 +1,77 @@
+:root {
+  /* Tactical Riot Esports Color Palette */
+  --bg-primary: #08090B;
+  --bg-secondary: #0D0F13;
+  --bg-card: #12141A;
+  --bg-card-hover: #181B22;
+  --bg-glass: rgba(18, 20, 26, 0.88);
+  --bg-input: #0E1015;
+
+  /* Accents */
+  --riot-red: #FF4655;          /* Official Valorant Crimson */
+  --riot-red-hover: #FF5E6B;
+  --riot-red-glow: rgba(255, 70, 85, 0.35);
+
+  --riot-teal: #00F5D4;         /* High-contrast Radiant Cyan */
+  --riot-teal-hover: #33F7DC;
+  --riot-teal-glow: rgba(0, 245, 212, 0.3);
+
+  --hextech-gold: #C89B3C;      /* Official League Hextech Gold */
+  --hextech-gold-glow: rgba(200, 155, 60, 0.3);
+
+  --val-radiant: #FFFF80;
+  --val-immortal: #BA123B;
+  --val-ascendant: #199A6E;
+  --val-diamond: #B885FC;
+  --val-plat: #22B2DA;
+  --val-gold: #E8C143;
+  --val-silver: #A3B3C2;
+  --val-bronze: #A5724B;
+  --val-iron: #6C757D;
+
+  /* Borders & Dividers - Sharp Tactical */
+  --border-subtle: #1F242E;
+  --border-focus: #323A4A;
+  --border-accent: rgba(255, 70, 85, 0.5);
+
+  /* Typography */
+  --text-main: #FFFFFF;
+  --text-muted: #9CA3AF;
+  --text-dim: #6B7280;
+  --text-highlight: #F3F4F6;
+
+  /* Dimensions & Radius - Tactical Sharp Edges (Less Rounded) */
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --radius-full: 4px;
+
+  /* Shadows & Glow */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.6);
+  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.7);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.85);
+  --glow-red: 0 0 16px var(--riot-red-glow);
+  --glow-teal: 0 0 16px var(--riot-teal-glow);
+}
+
+[data-theme="amoled"] {
+  --bg-primary: #000000;
+  --bg-secondary: #050507;
+  --bg-card: #0A0B0E;
+  --bg-card-hover: #101116;
+  --border-subtle: #14171E;
+}
+
+[data-theme="light"] {
+  --bg-primary: #F0F2F5;
+  --bg-secondary: #E4E7EB;
+  --bg-card: #FFFFFF;
+  --bg-card-hover: #F8F9FA;
+  --bg-glass: rgba(255, 255, 255, 0.9);
+  --bg-input: #EAECEF;
+  --border-subtle: #D1D5DB;
+  --border-focus: #9CA3AF;
+  --text-main: #0B0E14;
+  --text-muted: #4B5563;
+  --text-dim: #6B7280;
+}
