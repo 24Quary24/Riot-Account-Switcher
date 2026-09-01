@@ -44,6 +44,12 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
   const [rpBalance, setRpBalance] = useState(0);
   const [championsOwned, setChampionsOwned] = useState(0);
   const [skinsOwned, setSkinsOwned] = useState(0);
+  const [leagueLevel, setLeagueLevel] = useState(1);
+  const [leagueRank, setLeagueRank] = useState('Unranked');
+  const [valLevel, setValLevel] = useState(1);
+  const [valRank, setValRank] = useState('Unranked');
+  const [valVp, setValVp] = useState(0);
+  const [valRad, setValRad] = useState(0);
   const [showInventoryFields, setShowInventoryFields] = useState(false);
 
   useEffect(() => {
@@ -60,6 +66,12 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
       setRpBalance(editingAccount.leagueStats?.rpBalance || 0);
       setChampionsOwned(editingAccount.leagueStats?.championsOwned || 0);
       setSkinsOwned(editingAccount.leagueStats?.skinsOwned || 0);
+      setLeagueLevel(editingAccount.leagueStats?.summonerLevel || 1);
+      setLeagueRank(editingAccount.leagueStats?.soloRank || 'Unranked');
+      setValLevel(editingAccount.valorantStats?.accountLevel || 1);
+      setValRank(editingAccount.valorantStats?.rank || 'Unranked');
+      setValVp(editingAccount.valorantStats?.vpBalance || 0);
+      setValRad(editingAccount.valorantStats?.radianiteBalance || 0);
     } else {
       setLabel('');
       setUsername('');
@@ -73,6 +85,12 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
       setRpBalance(0);
       setChampionsOwned(0);
       setSkinsOwned(0);
+      setLeagueLevel(1);
+      setLeagueRank('Unranked');
+      setValLevel(1);
+      setValRank('Unranked');
+      setValVp(0);
+      setValRad(0);
     }
     setErrorMsg('');
     setDetectSuccess(false);
@@ -133,32 +151,47 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
     setErrorMsg('');
 
     try {
-      const updatedLeagueStats = editingAccount?.leagueStats
-        ? {
-            ...editingAccount.leagueStats,
-            beBalance: Number(beBalance) || 0,
-            rpBalance: Number(rpBalance) || 0,
-            championsOwned: Number(championsOwned) || 0,
-            skinsOwned: Number(skinsOwned) || 0,
-          }
-        : games === 'league' || games === 'both'
-        ? {
-            summonerLevel: 1,
-            championsOwned: Number(championsOwned) || 0,
-            skinsOwned: Number(skinsOwned) || 0,
-            soloRank: 'Unranked',
-            soloLp: 0,
-            soloWins: 0,
-            soloLosses: 0,
-            soloWinrate: 0,
-            flexRank: 'Unranked',
-            flexLp: 0,
-            topMastery: [],
-            recentMatches: [],
-            rpBalance: Number(rpBalance) || 0,
-            beBalance: Number(beBalance) || 0,
-          }
-        : undefined;
+      const updatedLeagueStats =
+        games === 'league' || games === 'both'
+          ? {
+              ...(editingAccount?.leagueStats || {
+                soloWins: 0,
+                soloLosses: 0,
+                soloWinrate: 0,
+                flexRank: 'Unranked',
+                flexLp: 0,
+                topMastery: [],
+                recentMatches: [],
+              }),
+              summonerLevel: Number(leagueLevel) || 1,
+              soloRank: leagueRank || 'Unranked',
+              soloLp: editingAccount?.leagueStats?.soloLp || 0,
+              beBalance: Number(beBalance) || 0,
+              rpBalance: Number(rpBalance) || 0,
+              championsOwned: Number(championsOwned) || 0,
+              skinsOwned: Number(skinsOwned) || 0,
+            }
+          : undefined;
+
+      const updatedValorantStats =
+        games === 'valorant' || games === 'both'
+          ? {
+              ...(editingAccount?.valorantStats || {
+                rankRating: 0,
+                peakRank: 'Unranked',
+                leaderboardPosition: null,
+                battlePassLevel: 1,
+                kcBalance: 0,
+                skinsOwned: 0,
+                agentsUnlocked: 5,
+                recentMatches: [],
+              }),
+              accountLevel: Number(valLevel) || 1,
+              rank: valRank || 'Unranked',
+              vpBalance: Number(valVp) || 0,
+              radianiteBalance: Number(valRad) || 0,
+            }
+          : undefined;
 
       const accountData: RiotAccount = {
         id: editingAccount ? editingAccount.id : `acc-${Date.now()}`,
@@ -170,7 +203,7 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
         tagline: tagline.trim(),
         has2fa,
         createdAt: editingAccount ? editingAccount.createdAt : new Date().toISOString(),
-        valorantStats: editingAccount?.valorantStats,
+        valorantStats: updatedValorantStats,
         leagueStats: updatedLeagueStats,
       };
 
@@ -390,96 +423,166 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
               />
             </div>
 
-            {/* Optional Balances & Inventory Override */}
-            {(games === 'league' || games === 'both') && (
-              <div style={{ marginTop: '12px' }}>
-                <button
-                  type="button"
-                  onClick={() => setShowInventoryFields(!showInventoryFields)}
-                  className="btn btn-secondary btn-sm"
+            {/* Customizable Levels, Ranks & Inventory Override */}
+            <div style={{ marginTop: '12px' }}>
+              <button
+                type="button"
+                onClick={() => setShowInventoryFields(!showInventoryFields)}
+                className="btn btn-secondary btn-sm"
+                style={{
+                  width: '100%',
+                  justifyContent: 'space-between',
+                  fontSize: '11px',
+                  padding: '7px 12px',
+                  color: 'var(--riot-teal)',
+                  borderColor: 'rgba(0, 245, 212, 0.25)',
+                  background: 'rgba(0, 245, 212, 0.04)',
+                }}
+              >
+                <span>⚙️ Account Levels, Ranks & Inventory (Customizable)</span>
+                <span style={{ fontSize: '10px', opacity: 0.8 }}>
+                  {showInventoryFields ? '▲ Hide' : '▼ Customize Levels & Stats'}
+                </span>
+              </button>
+
+              {showInventoryFields && (
+                <div
                   style={{
-                    width: '100%',
-                    justifyContent: 'space-between',
-                    fontSize: '11px',
-                    padding: '7px 12px',
-                    color: 'var(--riot-teal)',
-                    borderColor: 'rgba(0, 245, 212, 0.25)',
-                    background: 'rgba(0, 245, 212, 0.04)',
+                    marginTop: '8px',
+                    background: 'rgba(0, 0, 0, 0.25)',
+                    padding: '12px',
+                    borderRadius: '4px',
+                    border: '1px solid var(--border-subtle)',
                   }}
                 >
-                  <span>💰 League Balances & Inventory (Optional)</span>
-                  <span style={{ fontSize: '10px', opacity: 0.8 }}>
-                    {showInventoryFields ? '▲ Hide' : '▼ Set Blue Essence & RP'}
-                  </span>
-                </button>
-
-                {showInventoryFields && (
-                  <div
-                    style={{
-                      marginTop: '8px',
-                      background: 'rgba(0, 0, 0, 0.25)',
-                      padding: '12px',
-                      borderRadius: '4px',
-                      border: '1px solid var(--border-subtle)',
-                    }}
-                  >
-                    <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '10px' }}>
-                      Balances automatically sync from the League client when you launch the game. You can also customize them manually below.
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                      <div className="form-group" style={{ marginBottom: 0 }}>
-                        <label className="form-label" style={{ fontSize: '11px' }}>
-                          Blue Essence (BE)
-                        </label>
-                        <input
-                          type="number"
-                          className="form-input"
-                          value={beBalance}
-                          onChange={(e) => setBeBalance(Math.max(0, parseInt(e.target.value, 10) || 0))}
-                          min="0"
-                        />
-                      </div>
-                      <div className="form-group" style={{ marginBottom: 0 }}>
-                        <label className="form-label" style={{ fontSize: '11px' }}>
-                          Riot Points (RP)
-                        </label>
-                        <input
-                          type="number"
-                          className="form-input"
-                          value={rpBalance}
-                          onChange={(e) => setRpBalance(Math.max(0, parseInt(e.target.value, 10) || 0))}
-                          min="0"
-                        />
-                      </div>
-                      <div className="form-group" style={{ marginBottom: 0 }}>
-                        <label className="form-label" style={{ fontSize: '11px' }}>
-                          Champions Owned
-                        </label>
-                        <input
-                          type="number"
-                          className="form-input"
-                          value={championsOwned}
-                          onChange={(e) => setChampionsOwned(Math.max(0, parseInt(e.target.value, 10) || 0))}
-                          min="0"
-                        />
-                      </div>
-                      <div className="form-group" style={{ marginBottom: 0 }}>
-                        <label className="form-label" style={{ fontSize: '11px' }}>
-                          Skins Owned
-                        </label>
-                        <input
-                          type="number"
-                          className="form-input"
-                          value={skinsOwned}
-                          onChange={(e) => setSkinsOwned(Math.max(0, parseInt(e.target.value, 10) || 0))}
-                          min="0"
-                        />
-                      </div>
-                    </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '12px' }}>
+                    Stats automatically sync when you launch the game via the client. You can also customize your levels and ranks directly below.
                   </div>
-                )}
-              </div>
-            )}
+
+                  {/* League of Legends Section */}
+                  {(games === 'league' || games === 'both') && (
+                    <div style={{ marginBottom: games === 'both' ? '14px' : 0 }}>
+                      <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--riot-gold)', marginBottom: '8px' }}>
+                        LEAGUE OF LEGENDS
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label" style={{ fontSize: '11px' }}>
+                            Summoner Level
+                          </label>
+                          <input
+                            type="number"
+                            className="form-input"
+                            value={leagueLevel}
+                            onChange={(e) => setLeagueLevel(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                            min="1"
+                          />
+                        </div>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label" style={{ fontSize: '11px' }}>
+                            Solo/Duo Rank
+                          </label>
+                          <input
+                            type="text"
+                            className="form-input"
+                            value={leagueRank}
+                            onChange={(e) => setLeagueRank(e.target.value)}
+                            placeholder="e.g. Gold 2, Emerald 1, Unranked"
+                          />
+                        </div>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label" style={{ fontSize: '11px' }}>
+                            Blue Essence (BE)
+                          </label>
+                          <input
+                            type="number"
+                            className="form-input"
+                            value={beBalance}
+                            onChange={(e) => setBeBalance(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                            min="0"
+                          />
+                        </div>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label" style={{ fontSize: '11px' }}>
+                            Riot Points (RP)
+                          </label>
+                          <input
+                            type="number"
+                            className="form-input"
+                            value={rpBalance}
+                            onChange={(e) => setRpBalance(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                            min="0"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Valorant Section */}
+                  {(games === 'valorant' || games === 'both') && (
+                    <div>
+                      <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--riot-red)', marginBottom: '8px' }}>
+                        VALORANT
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label" style={{ fontSize: '11px' }}>
+                            Account Level
+                          </label>
+                          <input
+                            type="number"
+                            className="form-input"
+                            value={valLevel}
+                            onChange={(e) => setValLevel(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                            min="1"
+                          />
+                        </div>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label" style={{ fontSize: '11px' }}>
+                            Competitive Rank
+                          </label>
+                          <input
+                            type="text"
+                            className="form-input"
+                            value={valRank}
+                            onChange={(e) => setValRank(e.target.value)}
+                            placeholder="e.g. Silver 3, Diamond 1, Unranked"
+                          />
+                        </div>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label" style={{ fontSize: '11px' }}>
+                            Valorant Points (VP)
+                          </label>
+                          <input
+                            type="number"
+                            className="form-input"
+                            value={valVp}
+                            onChange={(e) => setValVp(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                            min="0"
+                          />
+                        </div>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label" style={{ fontSize: '11px' }}>
+                            Radianite (RAD)
+                          </label>
+                          <input
+                            type="number"
+                            className="form-input"
+                            value={valRad}
+                            onChange={(e) => setValRad(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                            min="0"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="modal-footer">

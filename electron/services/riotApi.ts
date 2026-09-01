@@ -640,16 +640,17 @@ export class RiotApiService {
       }
     };
 
-    // 1. Account Riot ID + Tagline
-    addCand(account.riotId, account.tagline);
-    // 2. Account Label + Tagline
-    addCand(account.label, account.tagline);
-    // 3. Account Label + Default Region Tag
-    addCand(account.label, defaultTag);
-    // 4. Account Riot ID + Default Region Tag
-    addCand(account.riotId, defaultTag);
-    // 5. Account Username + Default Region Tag
-    addCand(account.username, defaultTag);
+    const targetName = account.riotId?.trim() || account.label?.trim();
+    if (!targetName) return undefined;
+
+    // 1. Exact Riot ID + Tagline provided
+    addCand(targetName, account.tagline);
+    // 2. Exact Riot ID + Regional Tag (e.g. EUW, EUNE, NA1)
+    addCand(targetName, defaultTag);
+    // 3. Exact Riot ID + Region code
+    if (account.region && account.region !== defaultTag) {
+      addCand(targetName, account.region);
+    }
 
     // Try primary region, then alternate region if EUNE/EUW
     const regionsToTry = [reg];

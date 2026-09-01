@@ -250,15 +250,38 @@ function setupIpcHandlers() {
     const stats = await riotApiService.fetchAccountStats(existing);
     if (idx >= 0) {
       if (stats.valorantStats) {
+        const curVal = accounts[idx].valorantStats;
         accounts[idx].valorantStats = {
-          ...(accounts[idx].valorantStats || {}),
+          ...(curVal || {}),
           ...stats.valorantStats,
+          accountLevel:
+            (stats.valorantStats.accountLevel && stats.valorantStats.accountLevel > 1)
+              ? stats.valorantStats.accountLevel
+              : (curVal?.accountLevel || 1),
+          rank:
+            stats.valorantStats.rank !== 'Unranked'
+              ? stats.valorantStats.rank
+              : (curVal?.rank || 'Unranked'),
+          vpBalance: stats.valorantStats.vpBalance || curVal?.vpBalance || 0,
+          radianiteBalance: stats.valorantStats.radianiteBalance || curVal?.radianiteBalance || 0,
         };
       }
       if (stats.leagueStats) {
+        const curLol = accounts[idx].leagueStats;
         accounts[idx].leagueStats = {
-          ...(accounts[idx].leagueStats || {}),
+          ...(curLol || {}),
           ...stats.leagueStats,
+          summonerLevel:
+            (stats.leagueStats.summonerLevel && stats.leagueStats.summonerLevel > 1)
+              ? stats.leagueStats.summonerLevel
+              : (curLol?.summonerLevel || 1),
+          soloRank:
+            stats.leagueStats.soloRank !== 'Unranked'
+              ? stats.leagueStats.soloRank
+              : (curLol?.soloRank || 'Unranked'),
+          soloLp: stats.leagueStats.soloLp || curLol?.soloLp || 0,
+          beBalance: stats.leagueStats.beBalance || curLol?.beBalance || 0,
+          rpBalance: stats.leagueStats.rpBalance || curLol?.rpBalance || 0,
         };
       }
       storageService.saveAccounts(accounts);
