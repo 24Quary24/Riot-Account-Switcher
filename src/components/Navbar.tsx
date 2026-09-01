@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, Globe, Settings, HelpCircle, Plus, Search, ShieldCheck, RefreshCw } from 'lucide-react';
+import { Users, Globe, Settings, HelpCircle, Plus, Search, ShieldCheck } from 'lucide-react';
 import { GameType } from '../types';
 
 interface NavbarProps {
@@ -11,8 +11,6 @@ interface NavbarProps {
   setGameFilter: (filter: GameType | 'all') => void;
   onOpenAddModal: () => void;
   onOpenVaultModal: () => void;
-  onRefreshAll: () => void;
-  isRefreshing?: boolean;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -24,8 +22,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   setGameFilter,
   onOpenAddModal,
   onOpenVaultModal,
-  onRefreshAll,
-  isRefreshing,
 }) => {
   return (
     <>
@@ -81,15 +77,6 @@ export const Navbar: React.FC<NavbarProps> = ({
             title="Encrypted Backup / Import Vault"
           >
             <ShieldCheck size={16} color="var(--riot-teal)" />
-          </button>
-
-          <button
-            className="btn btn-secondary btn-icon"
-            onClick={onRefreshAll}
-            disabled={isRefreshing}
-            title="Refresh Account Data"
-          >
-            <RefreshCw size={16} className={isRefreshing ? 'spin-anim' : ''} />
           </button>
 
           <button className="btn btn-primary" onClick={onOpenAddModal}>

@@ -1,13 +1,11 @@
 import React, { useState } from 'react';
-import { X, Play, RefreshCw, Flame, Shield, Trophy, Coins, Sparkles, UserCheck, ShieldCheck, Crosshair, Award } from 'lucide-react';
+import { X, Play, Flame, Shield, Trophy, Coins, Sparkles, UserCheck, ShieldCheck, Crosshair, Award } from 'lucide-react';
 import { RiotAccount } from '../types';
 
 interface AccountDetailModalProps {
   account: RiotAccount | null;
   onClose: () => void;
   onLaunch: (accountId: string, game: 'valorant' | 'league') => void;
-  onRefresh: (account: RiotAccount) => void;
-  isRefreshing?: boolean;
   isLaunching?: boolean;
 }
 
@@ -15,8 +13,6 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   account,
   onClose,
   onLaunch,
-  onRefresh,
-  isRefreshing,
   isLaunching,
 }) => {
   if (!account) return null;
@@ -70,14 +66,6 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button
-              className="btn btn-secondary btn-icon"
-              onClick={() => onRefresh(account)}
-              disabled={isRefreshing}
-              title="Refresh Live Stats from Riot Client"
-            >
-              <RefreshCw size={15} className={isRefreshing ? 'spin-anim' : ''} />
-            </button>
             <button className="btn btn-secondary btn-icon" onClick={onClose}>
               <X size={16} />
             </button>

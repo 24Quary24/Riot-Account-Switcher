@@ -1,24 +1,24 @@
 import React, { useState, useEffect } from 'react';
-import { X, Eye, EyeOff, Shield, ShieldCheck, Zap, Sparkles } from 'lucide-react';
+import { X, Eye, EyeOff, ShieldCheck, Key, User, Tag, Globe, Gamepad2 } from 'lucide-react';
 import { RiotAccount, Region, GameType } from '../types';
 
 interface AddEditAccountModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (account: RiotAccount, password?: string) => Promise<void>;
-  editingAccount?: RiotAccount | null;
+  editingAccount: RiotAccount | null;
 }
 
-const REGIONS: { id: Region; label: string }[] = [
-  { id: 'NA', label: 'North America (NA)' },
-  { id: 'EUW', label: 'Europe West (EUW)' },
-  { id: 'EUNE', label: 'Europe Nordic & East (EUNE)' },
-  { id: 'KR', label: 'Korea (KR)' },
-  { id: 'AP', label: 'Asia Pacific (AP)' },
-  { id: 'BR', label: 'Brazil (BR)' },
-  { id: 'LAN', label: 'Latin America North (LAN)' },
-  { id: 'LAS', label: 'Latin America South (LAS)' },
-  { id: 'OCE', label: 'Oceania (OCE)' },
+const REGIONS: { value: Region; label: string }[] = [
+  { value: 'EUW', label: 'Europe West (EUW)' },
+  { value: 'EUNE', label: 'Europe Nordic & East (EUNE)' },
+  { value: 'NA', label: 'North America (NA)' },
+  { value: 'KR', label: 'Korea (KR)' },
+  { value: 'AP', label: 'Asia Pacific (AP)' },
+  { value: 'BR', label: 'Brazil (BR)' },
+  { value: 'LAN', label: 'Latin America North (LAN)' },
+  { value: 'LAS', label: 'Latin America South (LAS)' },
+  { value: 'OCE', label: 'Oceania (OCE)' },
 ];
 
 export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
@@ -33,24 +33,11 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [riotId, setRiotId] = useState('');
   const [tagline, setTagline] = useState('');
-  const [region, setRegion] = useState<Region>('EUNE');
+  const [region, setRegion] = useState<Region>('EUW');
   const [games, setGames] = useState<GameType>('both');
-  const [has2fa, setHas2fa] = useState<boolean>(false);
-  const [isDetecting, setIsDetecting] = useState(false);
-  const [detectSuccess, setDetectSuccess] = useState(false);
+  const [has2fa, setHas2fa] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-  const [beBalance, setBeBalance] = useState(0);
-  const [rpBalance, setRpBalance] = useState(0);
-  const [championsOwned, setChampionsOwned] = useState(0);
-  const [skinsOwned, setSkinsOwned] = useState(0);
-  const [leagueLevel, setLeagueLevel] = useState(1);
-  const [leagueRank, setLeagueRank] = useState('Unranked');
-  const [valLevel, setValLevel] = useState(1);
-  const [valRank, setValRank] = useState('Unranked');
-  const [valVp, setValVp] = useState(0);
-  const [valRad, setValRad] = useState(0);
-  const [showInventoryFields, setShowInventoryFields] = useState(false);
 
   useEffect(() => {
     if (editingAccount) {
@@ -62,16 +49,6 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
       setRegion(editingAccount.region);
       setGames(editingAccount.games);
       setHas2fa(editingAccount.has2fa || false);
-      setBeBalance(editingAccount.leagueStats?.beBalance || 0);
-      setRpBalance(editingAccount.leagueStats?.rpBalance || 0);
-      setChampionsOwned(editingAccount.leagueStats?.championsOwned || 0);
-      setSkinsOwned(editingAccount.leagueStats?.skinsOwned || 0);
-      setLeagueLevel(editingAccount.leagueStats?.summonerLevel || 1);
-      setLeagueRank(editingAccount.leagueStats?.soloRank || 'Unranked');
-      setValLevel(editingAccount.valorantStats?.accountLevel || 1);
-      setValRank(editingAccount.valorantStats?.rank || 'Unranked');
-      setValVp(editingAccount.valorantStats?.vpBalance || 0);
-      setValRad(editingAccount.valorantStats?.radianiteBalance || 0);
     } else {
       setLabel('');
       setUsername('');
@@ -81,54 +58,9 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
       setRegion('EUW');
       setGames('both');
       setHas2fa(false);
-      setBeBalance(0);
-      setRpBalance(0);
-      setChampionsOwned(0);
-      setSkinsOwned(0);
-      setLeagueLevel(1);
-      setLeagueRank('Unranked');
-      setValLevel(1);
-      setValRank('Unranked');
-      setValVp(0);
-      setValRad(0);
     }
     setErrorMsg('');
-    setDetectSuccess(false);
   }, [editingAccount, isOpen]);
-
-  const autoDetectActiveSession = async () => {
-    try {
-      setIsDetecting(true);
-      setErrorMsg('');
-      const api = (window as any).riotManagerApi;
-      if (!api || !api.detectActiveSession) return;
-      const detected = await api.detectActiveSession();
-      if (detected && detected.riotId) {
-        const currentName = editingAccount?.riotId || editingAccount?.label || label || username;
-        if (currentName && currentName.trim() !== '' && detected.riotId.toLowerCase() !== currentName.toLowerCase()) {
-          const proceed = window.confirm(
-            `The currently active Riot Client session belongs to:\n• Riot ID: ${detected.riotId}#${detected.tagline}\n• Region: ${detected.region}\n\nYour account is currently set to "${currentName}".\n\nDo you want to overwrite with ${detected.riotId}#${detected.tagline}?`
-          );
-          if (!proceed) {
-            setIsDetecting(false);
-            return;
-          }
-        }
-        setRiotId(detected.riotId);
-        setTagline(detected.tagline);
-        if (!label) setLabel(detected.riotId);
-        if (detected.region) setRegion(detected.region);
-        setDetectSuccess(true);
-        setTimeout(() => setDetectSuccess(false), 4000);
-      } else {
-        setErrorMsg('No active Riot Client session detected. Please make sure Riot Client is open and logged into an account.');
-      }
-    } catch (err: any) {
-      setErrorMsg('Failed to detect Riot session: ' + err.message);
-    } finally {
-      setIsDetecting(false);
-    }
-  };
 
   if (!isOpen) return null;
 
@@ -151,48 +83,6 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
     setErrorMsg('');
 
     try {
-      const updatedLeagueStats =
-        games === 'league' || games === 'both'
-          ? {
-              ...(editingAccount?.leagueStats || {
-                soloWins: 0,
-                soloLosses: 0,
-                soloWinrate: 0,
-                flexRank: 'Unranked',
-                flexLp: 0,
-                topMastery: [],
-                recentMatches: [],
-              }),
-              summonerLevel: Number(leagueLevel) || 1,
-              soloRank: leagueRank || 'Unranked',
-              soloLp: editingAccount?.leagueStats?.soloLp || 0,
-              beBalance: Number(beBalance) || 0,
-              rpBalance: Number(rpBalance) || 0,
-              championsOwned: Number(championsOwned) || 0,
-              skinsOwned: Number(skinsOwned) || 0,
-            }
-          : undefined;
-
-      const updatedValorantStats =
-        games === 'valorant' || games === 'both'
-          ? {
-              ...(editingAccount?.valorantStats || {
-                rankRating: 0,
-                peakRank: 'Unranked',
-                leaderboardPosition: null,
-                battlePassLevel: 1,
-                kcBalance: 0,
-                skinsOwned: 0,
-                agentsUnlocked: 5,
-                recentMatches: [],
-              }),
-              accountLevel: Number(valLevel) || 1,
-              rank: valRank || 'Unranked',
-              vpBalance: Number(valVp) || 0,
-              radianiteBalance: Number(valRad) || 0,
-            }
-          : undefined;
-
       const accountData: RiotAccount = {
         id: editingAccount ? editingAccount.id : `acc-${Date.now()}`,
         label: label.trim(),
@@ -203,8 +93,6 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
         tagline: tagline.trim(),
         has2fa,
         createdAt: editingAccount ? editingAccount.createdAt : new Date().toISOString(),
-        valorantStats: updatedValorantStats,
-        leagueStats: updatedLeagueStats,
       };
 
       await onSave(accountData, password.trim() ? password.trim() : undefined);
@@ -217,185 +105,171 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-box" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '440px' }}>
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Shield size={18} color="var(--riot-red)" />
-            <h2>{editingAccount ? 'Edit Riot Account' : 'Add Riot Account'}</h2>
+            <Key size={18} color="var(--riot-teal)" />
+            <h2 style={{ fontSize: '15px', fontWeight: 700, color: '#FFF' }}>
+              {editingAccount ? 'Edit Riot Account' : 'Add New Riot Account'}
+            </h2>
           </div>
-          <button className="btn btn-secondary btn-icon" onClick={onClose}>
+          <button className="btn btn-secondary btn-icon btn-sm" onClick={onClose}>
             <X size={16} />
           </button>
         </div>
 
         <form onSubmit={handleSubmit}>
-          <div className="modal-body">
+          <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {errorMsg && (
               <div
                 style={{
-                  padding: '10px 14px',
-                  background: 'rgba(232, 64, 42, 0.15)',
+                  padding: '8px 12px',
+                  background: 'rgba(235, 0, 41, 0.12)',
                   border: '1px solid var(--riot-red)',
                   borderRadius: '4px',
-                  color: '#FF6B6B',
-                  marginBottom: '14px',
-                  fontSize: '13px',
+                  color: '#FF6B7A',
+                  fontSize: '12px',
                 }}
               >
                 {errorMsg}
               </div>
             )}
 
-            {detectSuccess && (
-              <div
-                style={{
-                  padding: '8px 12px',
-                  background: 'rgba(0, 245, 212, 0.12)',
-                  border: '1px solid var(--riot-teal)',
-                  borderRadius: '4px',
-                  color: 'var(--riot-teal)',
-                  marginBottom: '14px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                }}
-              >
-                <Sparkles size={14} /> Auto-detected Riot ID & Tagline from active Riot Client!
-              </div>
-            )}
-
-            <div className="form-group">
-              <label className="form-label">Account Label</label>
+            {/* Account Label */}
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label">
+                <Tag size={12} style={{ display: 'inline', marginRight: '4px' }} />
+                Account Label / Nickname *
+              </label>
               <input
                 type="text"
                 className="form-input"
-                placeholder="e.g. Main Account, Alt / Smurf"
+                placeholder="e.g. Main EUW, Smurf, Herdyn"
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
-                required
+                autoFocus
               />
             </div>
 
-            {/* Auto-detect button bar */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-              <label className="form-label" style={{ marginBottom: 0 }}>
-                Riot ID & Tagline
-              </label>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => autoDetectActiveSession()}
-                disabled={isDetecting}
-                style={{
-                  fontSize: '11px',
-                  padding: '3px 8px',
-                  color: 'var(--riot-teal)',
-                  borderColor: 'rgba(0, 245, 212, 0.3)',
-                  background: 'rgba(0, 245, 212, 0.06)',
-                  borderRadius: '3px',
-                }}
-              >
-                <Zap size={12} /> {isDetecting ? 'Detecting...' : 'Auto-Detect from Riot Client'}
-              </button>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '10px' }}>
+            {/* Username & Password */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
               <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">
+                  <User size={12} style={{ display: 'inline', marginRight: '4px' }} />
+                  Login Username *
+                </label>
                 <input
                   type="text"
                   className="form-input"
-                  placeholder="Riot ID (e.g. Chamborist)"
-                  value={riotId}
-                  onChange={(e) => setRiotId(e.target.value)}
+                  placeholder="Riot Username"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  disabled={!!editingAccount}
                 />
               </div>
+
               <div className="form-group" style={{ marginBottom: 0 }}>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="Tag (#ELO)"
-                  value={tagline}
-                  onChange={(e) => setTagline(e.target.value)}
-                />
-              </div>
-            </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '14px', marginTop: '4px' }}>
-              Leave blank to automatically detect from running Riot Client session.
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Login Username / Email</label>
-              <input
-                type="text"
-                className="form-input"
-                placeholder="Riot Client login username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                required
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">
-                Password {editingAccount && '(leave blank to keep current)'}
-              </label>
-              <div className="input-with-icon">
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  className="form-input"
-                  placeholder="Hardware DPAPI encrypted password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required={!editingAccount}
-                />
-                <button
-                  type="button"
-                  className="input-icon-btn"
-                  onClick={() => setShowPassword(!showPassword)}
-                >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
+                <label className="form-label">
+                  <Key size={12} style={{ display: 'inline', marginRight: '4px' }} />
+                  {editingAccount ? 'Password (blank = keep)' : 'Password *'}
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    className="form-input"
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    style={{ paddingRight: '36px' }}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-icon"
+                    onClick={() => setShowPassword(!showPassword)}
+                    style={{
+                      position: 'absolute',
+                      right: '6px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--text-dim)',
+                    }}
+                  >
+                    {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-              <div className="form-group">
-                <label className="form-label">Server Region</label>
+            {/* Game Target & Region */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">
+                  <Gamepad2 size={12} style={{ display: 'inline', marginRight: '4px' }} />
+                  Target Game
+                </label>
                 <select
-                  className="form-select"
+                  className="form-input"
+                  value={games}
+                  onChange={(e) => setGames(e.target.value as GameType)}
+                >
+                  <option value="both">Valorant & League</option>
+                  <option value="valorant">VALORANT Only</option>
+                  <option value="league">League of Legends Only</option>
+                </select>
+              </div>
+
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">
+                  <Globe size={12} style={{ display: 'inline', marginRight: '4px' }} />
+                  Region
+                </label>
+                <select
+                  className="form-input"
                   value={region}
                   onChange={(e) => setRegion(e.target.value as Region)}
                 >
                   {REGIONS.map((r) => (
-                    <option key={r.id} value={r.id}>
+                    <option key={r.value} value={r.value}>
                       {r.label}
                     </option>
                   ))}
                 </select>
               </div>
+            </div>
 
-              <div className="form-group">
-                <label className="form-label">Associated Games</label>
-                <select
-                  className="form-select"
-                  value={games}
-                  onChange={(e) => setGames(e.target.value as GameType)}
-                >
-                  <option value="both">Both (VAL & LoL)</option>
-                  <option value="valorant">VALORANT Only</option>
-                  <option value="league">League of Legends Only</option>
-                </select>
+            {/* Optional Riot ID & Tagline */}
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '10px' }}>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">In-Game Riot ID (Optional)</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. Veltx, Chamborist"
+                  value={riotId}
+                  onChange={(e) => setRiotId(e.target.value)}
+                />
+              </div>
+
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Tagline</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. EUNE, ELO"
+                  value={tagline}
+                  onChange={(e) => setTagline(e.target.value.replace(/^#/, ''))}
+                />
               </div>
             </div>
 
             {/* 2FA Indicator Toggle */}
             <div
               style={{
-                marginTop: '10px',
-                padding: '10px 14px',
+                marginTop: '4px',
+                padding: '8px 12px',
                 background: 'rgba(255, 255, 255, 0.03)',
                 border: '1px solid var(--border-subtle)',
                 borderRadius: '4px',
@@ -404,14 +278,14 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
                 justifyContent: 'space-between',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <ShieldCheck size={18} color={has2fa ? 'var(--riot-teal)' : 'var(--text-dim)'} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <ShieldCheck size={16} color={has2fa ? 'var(--riot-teal)' : 'var(--text-dim)'} />
                 <div>
-                  <div style={{ fontSize: '13px', fontWeight: 600, color: '#FFF' }}>
-                    Two-Factor Authentication (2FA / MFA)
+                  <div style={{ fontSize: '12px', fontWeight: 600, color: '#FFF' }}>
+                    Two-Factor Authentication (2FA)
                   </div>
                   <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                    Shows 2FA alert and prompts for email/auth code upon switching
+                    Shows 2FA alert badge on the account card
                   </div>
                 </div>
               </div>
@@ -419,169 +293,8 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
                 type="checkbox"
                 checked={has2fa}
                 onChange={(e) => setHas2fa(e.target.checked)}
-                style={{ width: '18px', height: '18px', accentColor: 'var(--riot-teal)', cursor: 'pointer' }}
+                style={{ width: '16px', height: '16px', accentColor: 'var(--riot-teal)', cursor: 'pointer' }}
               />
-            </div>
-
-            {/* Customizable Levels, Ranks & Inventory Override */}
-            <div style={{ marginTop: '12px' }}>
-              <button
-                type="button"
-                onClick={() => setShowInventoryFields(!showInventoryFields)}
-                className="btn btn-secondary btn-sm"
-                style={{
-                  width: '100%',
-                  justifyContent: 'space-between',
-                  fontSize: '11px',
-                  padding: '7px 12px',
-                  color: 'var(--riot-teal)',
-                  borderColor: 'rgba(0, 245, 212, 0.25)',
-                  background: 'rgba(0, 245, 212, 0.04)',
-                }}
-              >
-                <span>⚙️ Account Levels, Ranks & Inventory (Customizable)</span>
-                <span style={{ fontSize: '10px', opacity: 0.8 }}>
-                  {showInventoryFields ? '▲ Hide' : '▼ Customize Levels & Stats'}
-                </span>
-              </button>
-
-              {showInventoryFields && (
-                <div
-                  style={{
-                    marginTop: '8px',
-                    background: 'rgba(0, 0, 0, 0.25)',
-                    padding: '12px',
-                    borderRadius: '4px',
-                    border: '1px solid var(--border-subtle)',
-                  }}
-                >
-                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '12px' }}>
-                    Stats automatically sync when you launch the game via the client. You can also customize your levels and ranks directly below.
-                  </div>
-
-                  {/* League of Legends Section */}
-                  {(games === 'league' || games === 'both') && (
-                    <div style={{ marginBottom: games === 'both' ? '14px' : 0 }}>
-                      <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--riot-gold)', marginBottom: '8px' }}>
-                        LEAGUE OF LEGENDS
-                      </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-                        <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label className="form-label" style={{ fontSize: '11px' }}>
-                            Summoner Level
-                          </label>
-                          <input
-                            type="number"
-                            className="form-input"
-                            value={leagueLevel}
-                            onChange={(e) => setLeagueLevel(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                            min="1"
-                          />
-                        </div>
-                        <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label className="form-label" style={{ fontSize: '11px' }}>
-                            Solo/Duo Rank
-                          </label>
-                          <input
-                            type="text"
-                            className="form-input"
-                            value={leagueRank}
-                            onChange={(e) => setLeagueRank(e.target.value)}
-                            placeholder="e.g. Gold 2, Emerald 1, Unranked"
-                          />
-                        </div>
-                      </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                        <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label className="form-label" style={{ fontSize: '11px' }}>
-                            Blue Essence (BE)
-                          </label>
-                          <input
-                            type="number"
-                            className="form-input"
-                            value={beBalance}
-                            onChange={(e) => setBeBalance(Math.max(0, parseInt(e.target.value, 10) || 0))}
-                            min="0"
-                          />
-                        </div>
-                        <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label className="form-label" style={{ fontSize: '11px' }}>
-                            Riot Points (RP)
-                          </label>
-                          <input
-                            type="number"
-                            className="form-input"
-                            value={rpBalance}
-                            onChange={(e) => setRpBalance(Math.max(0, parseInt(e.target.value, 10) || 0))}
-                            min="0"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Valorant Section */}
-                  {(games === 'valorant' || games === 'both') && (
-                    <div>
-                      <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--riot-red)', marginBottom: '8px' }}>
-                        VALORANT
-                      </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-                        <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label className="form-label" style={{ fontSize: '11px' }}>
-                            Account Level
-                          </label>
-                          <input
-                            type="number"
-                            className="form-input"
-                            value={valLevel}
-                            onChange={(e) => setValLevel(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                            min="1"
-                          />
-                        </div>
-                        <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label className="form-label" style={{ fontSize: '11px' }}>
-                            Competitive Rank
-                          </label>
-                          <input
-                            type="text"
-                            className="form-input"
-                            value={valRank}
-                            onChange={(e) => setValRank(e.target.value)}
-                            placeholder="e.g. Silver 3, Diamond 1, Unranked"
-                          />
-                        </div>
-                      </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                        <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label className="form-label" style={{ fontSize: '11px' }}>
-                            Valorant Points (VP)
-                          </label>
-                          <input
-                            type="number"
-                            className="form-input"
-                            value={valVp}
-                            onChange={(e) => setValVp(Math.max(0, parseInt(e.target.value, 10) || 0))}
-                            min="0"
-                          />
-                        </div>
-                        <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label className="form-label" style={{ fontSize: '11px' }}>
-                            Radianite (RAD)
-                          </label>
-                          <input
-                            type="number"
-                            className="form-input"
-                            value={valRad}
-                            onChange={(e) => setValRad(Math.max(0, parseInt(e.target.value, 10) || 0))}
-                            min="0"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
           </div>
 

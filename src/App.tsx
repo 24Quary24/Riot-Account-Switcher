@@ -42,7 +42,6 @@ export const App: React.FC = () => {
 
   // Status & Progress
   const [isLaunching, setIsLaunching] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   const isElectron = typeof window !== 'undefined' && !!(window as any).riotManagerApi;
@@ -106,9 +105,6 @@ export const App: React.FC = () => {
       } else if ((e.ctrlKey || e.metaKey) && e.key === ',') {
         e.preventDefault();
         setActiveTab('settings');
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'r') {
-        e.preventDefault();
-        handleRefreshAll();
       } else if ((e.ctrlKey || e.metaKey) && Number(e.key) >= 1 && Number(e.key) <= 9) {
         const idx = Number(e.key) - 1;
         if (accounts[idx]) {
@@ -190,45 +186,6 @@ export const App: React.FC = () => {
     }
   };
 
-  // Refresh Account Stats
-  const handleRefreshStats = async (account: RiotAccount) => {
-    setIsRefreshing(true);
-    addToast('Syncing Stats', `Refreshing rank and match history for ${account.label}...`, 'info');
-
-    if (isElectron) {
-      try {
-        const stats = await api.refreshAccountStats(account);
-        setAccounts((prev) =>
-          prev.map((a) => (a.id === account.id ? { ...a, ...stats } : a))
-        );
-        if (selectedAccount?.id === account.id) {
-          setSelectedAccount((prev) => (prev ? { ...prev, ...stats } : null));
-        }
-        addToast('Stats Updated', 'Rank ratings and recent matches refreshed.', 'success');
-      } catch (err: any) {
-        addToast('Refresh Failed', err.message, 'error');
-      } finally {
-        setIsRefreshing(false);
-      }
-    } else {
-      setTimeout(() => {
-        setIsRefreshing(false);
-        addToast('Stats Updated', 'Refreshed simulated stats.', 'success');
-      }, 800);
-    }
-  };
-
-  const handleRefreshAll = async () => {
-    setIsRefreshing(true);
-    for (const acc of accounts) {
-      if (isElectron) {
-        await api.refreshAccountStats(acc);
-      }
-    }
-    await loadData();
-    setIsRefreshing(false);
-    addToast('All Synced', 'All accounts have been updated.', 'success');
-  };
 
   // Settings Handlers
   const handleSaveSettings = async (newSettings: Partial<AppSettings>): Promise<AppSettings> => {
@@ -329,8 +286,6 @@ export const App: React.FC = () => {
           setIsAddModalOpen(true);
         }}
         onOpenVaultModal={() => setIsVaultModalOpen(true)}
-        onRefreshAll={handleRefreshAll}
-        isRefreshing={isRefreshing}
       />
 
       {/* Main Content Viewport */}
@@ -376,13 +331,11 @@ export const App: React.FC = () => {
                     key={account.id}
                     account={account}
                     onLaunch={handleLaunchAccount}
-                    onOpenDetails={(acc) => setSelectedAccount(acc)}
                     onEdit={(acc) => {
                       setEditingAccount(acc);
                       setIsAddModalOpen(true);
                     }}
                     onDelete={handleDeleteAccount}
-                    onRefresh={handleRefreshStats}
                     isLaunching={isLaunching}
                   />
                 ))}
@@ -410,8 +363,6 @@ export const App: React.FC = () => {
         account={selectedAccount}
         onClose={() => setSelectedAccount(null)}
         onLaunch={handleLaunchAccount}
-        onRefresh={handleRefreshStats}
-        isRefreshing={isRefreshing}
         isLaunching={isLaunching}
       />
 
