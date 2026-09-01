@@ -40,6 +40,11 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
   const [detectSuccess, setDetectSuccess] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [beBalance, setBeBalance] = useState(0);
+  const [rpBalance, setRpBalance] = useState(0);
+  const [championsOwned, setChampionsOwned] = useState(0);
+  const [skinsOwned, setSkinsOwned] = useState(0);
+  const [showInventoryFields, setShowInventoryFields] = useState(false);
 
   useEffect(() => {
     if (editingAccount) {
@@ -51,6 +56,10 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
       setRegion(editingAccount.region);
       setGames(editingAccount.games);
       setHas2fa(editingAccount.has2fa || false);
+      setBeBalance(editingAccount.leagueStats?.beBalance || 0);
+      setRpBalance(editingAccount.leagueStats?.rpBalance || 0);
+      setChampionsOwned(editingAccount.leagueStats?.championsOwned || 0);
+      setSkinsOwned(editingAccount.leagueStats?.skinsOwned || 0);
     } else {
       setLabel('');
       setUsername('');
@@ -60,6 +69,10 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
       setRegion('EUW');
       setGames('both');
       setHas2fa(false);
+      setBeBalance(0);
+      setRpBalance(0);
+      setChampionsOwned(0);
+      setSkinsOwned(0);
     }
     setErrorMsg('');
     setDetectSuccess(false);
@@ -120,6 +133,33 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
     setErrorMsg('');
 
     try {
+      const updatedLeagueStats = editingAccount?.leagueStats
+        ? {
+            ...editingAccount.leagueStats,
+            beBalance: Number(beBalance) || 0,
+            rpBalance: Number(rpBalance) || 0,
+            championsOwned: Number(championsOwned) || 0,
+            skinsOwned: Number(skinsOwned) || 0,
+          }
+        : games === 'league' || games === 'both'
+        ? {
+            summonerLevel: 1,
+            championsOwned: Number(championsOwned) || 0,
+            skinsOwned: Number(skinsOwned) || 0,
+            soloRank: 'Unranked',
+            soloLp: 0,
+            soloWins: 0,
+            soloLosses: 0,
+            soloWinrate: 0,
+            flexRank: 'Unranked',
+            flexLp: 0,
+            topMastery: [],
+            recentMatches: [],
+            rpBalance: Number(rpBalance) || 0,
+            beBalance: Number(beBalance) || 0,
+          }
+        : undefined;
+
       const accountData: RiotAccount = {
         id: editingAccount ? editingAccount.id : `acc-${Date.now()}`,
         label: label.trim(),
@@ -131,7 +171,7 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
         has2fa,
         createdAt: editingAccount ? editingAccount.createdAt : new Date().toISOString(),
         valorantStats: editingAccount?.valorantStats,
-        leagueStats: editingAccount?.leagueStats,
+        leagueStats: updatedLeagueStats,
       };
 
       await onSave(accountData, password.trim() ? password.trim() : undefined);
@@ -349,6 +389,97 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
                 style={{ width: '18px', height: '18px', accentColor: 'var(--riot-teal)', cursor: 'pointer' }}
               />
             </div>
+
+            {/* Optional Balances & Inventory Override */}
+            {(games === 'league' || games === 'both') && (
+              <div style={{ marginTop: '12px' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowInventoryFields(!showInventoryFields)}
+                  className="btn btn-secondary btn-sm"
+                  style={{
+                    width: '100%',
+                    justifyContent: 'space-between',
+                    fontSize: '11px',
+                    padding: '7px 12px',
+                    color: 'var(--riot-teal)',
+                    borderColor: 'rgba(0, 245, 212, 0.25)',
+                    background: 'rgba(0, 245, 212, 0.04)',
+                  }}
+                >
+                  <span>💰 League Balances & Inventory (Optional)</span>
+                  <span style={{ fontSize: '10px', opacity: 0.8 }}>
+                    {showInventoryFields ? '▲ Hide' : '▼ Set Blue Essence & RP'}
+                  </span>
+                </button>
+
+                {showInventoryFields && (
+                  <div
+                    style={{
+                      marginTop: '8px',
+                      background: 'rgba(0, 0, 0, 0.25)',
+                      padding: '12px',
+                      borderRadius: '4px',
+                      border: '1px solid var(--border-subtle)',
+                    }}
+                  >
+                    <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '10px' }}>
+                      Balances automatically sync from the League client when you launch the game. You can also customize them manually below.
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label className="form-label" style={{ fontSize: '11px' }}>
+                          Blue Essence (BE)
+                        </label>
+                        <input
+                          type="number"
+                          className="form-input"
+                          value={beBalance}
+                          onChange={(e) => setBeBalance(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                          min="0"
+                        />
+                      </div>
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label className="form-label" style={{ fontSize: '11px' }}>
+                          Riot Points (RP)
+                        </label>
+                        <input
+                          type="number"
+                          className="form-input"
+                          value={rpBalance}
+                          onChange={(e) => setRpBalance(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                          min="0"
+                        />
+                      </div>
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label className="form-label" style={{ fontSize: '11px' }}>
+                          Champions Owned
+                        </label>
+                        <input
+                          type="number"
+                          className="form-input"
+                          value={championsOwned}
+                          onChange={(e) => setChampionsOwned(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                          min="0"
+                        />
+                      </div>
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label className="form-label" style={{ fontSize: '11px' }}>
+                          Skins Owned
+                        </label>
+                        <input
+                          type="number"
+                          className="form-input"
+                          value={skinsOwned}
+                          onChange={(e) => setSkinsOwned(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                          min="0"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="modal-footer">

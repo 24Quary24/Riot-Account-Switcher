@@ -197,8 +197,24 @@ function setupIpcHandlers() {
         activeSession.riotId.toLowerCase() === account.riotId.toLowerCase()
       ) {
         const realStats = await riotApiService.fetchAccountStats(account);
-        if (realStats.valorantStats) account.valorantStats = realStats.valorantStats;
-        if (realStats.leagueStats) account.leagueStats = realStats.leagueStats;
+        if (realStats.valorantStats) {
+          account.valorantStats = {
+            ...(account.valorantStats || {}),
+            ...realStats.valorantStats,
+            vpBalance: realStats.valorantStats.vpBalance || account.valorantStats?.vpBalance || 0,
+            radianiteBalance: realStats.valorantStats.radianiteBalance || account.valorantStats?.radianiteBalance || 0,
+          };
+        }
+        if (realStats.leagueStats) {
+          account.leagueStats = {
+            ...(account.leagueStats || {}),
+            ...realStats.leagueStats,
+            beBalance: realStats.leagueStats.beBalance || account.leagueStats?.beBalance || 0,
+            rpBalance: realStats.leagueStats.rpBalance || account.leagueStats?.rpBalance || 0,
+            championsOwned: realStats.leagueStats.championsOwned || account.leagueStats?.championsOwned || 0,
+            skinsOwned: realStats.leagueStats.skinsOwned || account.leagueStats?.skinsOwned || 0,
+          };
+        }
       }
     } catch {}
 
