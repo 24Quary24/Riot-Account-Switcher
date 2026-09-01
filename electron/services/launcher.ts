@@ -167,7 +167,7 @@ export class LauncherService {
     } catch {}
 
     if (isAlreadyActive) {
-      onStatus?.(`Already logged in as ${account.riotId || account.label}. Starting ${game.toUpperCase()}...`);
+      onStatus?.(`Already signed in as ${account.riotId || account.label}. Starting ${game.toUpperCase()}...`);
       const child = spawn(clientPath, [`--launch-product=${productArg}`, '--launch-patchline=live'], {
         detached: true,
         stdio: 'ignore',
@@ -180,15 +180,15 @@ export class LauncherService {
 
       return {
         success: true,
-        message: `Launched ${game.toUpperCase()} with active account: ${account.riotId || account.label}`,
+        message: `Launched ${game.toUpperCase()} with active session ${account.riotId || account.label}!`,
       };
     }
 
     // 2. We need to switch accounts: log out previous session and terminate all instances
-    onStatus?.('Switching account: logging out previous session...');
+    onStatus?.('Switching accounts: logging out previous session...');
     await this.closeRunningClients();
 
-    onStatus?.(`Starting Riot Client for ${account.label} (${game.toUpperCase()})...`);
+    onStatus?.(`Opening Riot Client for ${account.label} (${game.toUpperCase()})...`);
     const launchArgs = [`--launch-product=${productArg}`, '--launch-patchline=live'];
 
     const child = spawn(clientPath, launchArgs, {
@@ -200,8 +200,8 @@ export class LauncherService {
 
     // Auto-login automation via secure STDIN
     if (process.platform === 'win32') {
-      const waitSeconds = Math.max(3, Math.min(15, settings.launchDelaySeconds || 4));
-      onStatus?.(`Waiting ${waitSeconds}s for Riot Client login screen...`);
+      const waitSeconds = Math.max(5, Math.min(15, settings.launchDelaySeconds || 6));
+      onStatus?.(`Waiting ${waitSeconds}s for Riot Client login screen to load...`);
       await new Promise((r) => setTimeout(r, waitSeconds * 1000));
 
       onStatus?.(`Entering credentials for ${account.username}...`);
@@ -227,8 +227,7 @@ export class LauncherService {
   /**
    * Bank-grade secure automation:
    * Pass credentials strictly through PowerShell's STDIN pipe.
-   * This completely prevents passwords from appearing in Windows Task Manager,
-   * process monitor logs, or command-line arguments.
+   * Uses paced typing cadence to ensure Chromium/Electron registers both username and password.
    */
   private async injectCredentialsViaStdin(username: string, pass: string): Promise<void> {
     return new Promise((resolve) => {
@@ -244,8 +243,8 @@ $password = [Console]::In.ReadLine()
 
 if (-not $user -or -not $password) { exit 0 }
 
-# Find and activate Riot Client window (retry up to 8 times)
-for ($i = 0; $i -lt 8; $i++) {
+# 1. Locate and activate Riot Client window (retry up to 10 times)
+for ($i = 0; $i -lt 10; $i++) {
     $activated = $false
     try {
         [Microsoft.VisualBasic.Interaction]::AppActivate("Riot Client")
@@ -266,13 +265,14 @@ for ($i = 0; $i -lt 8; $i++) {
     Start-Sleep -Milliseconds 500
 }
 
-Start-Sleep -Milliseconds 600
+# 2. Critical pause: Give Electron webview 1.5 seconds to mount and focus input
+Start-Sleep -Milliseconds 1500
 
-# Focus and clear current field (Ctrl+A, Backspace)
+# 3. Focus and clear username field
 [System.Windows.Forms.SendKeys]::SendWait('^a{BACKSPACE}')
-Start-Sleep -Milliseconds 150
+Start-Sleep -Milliseconds 250
 
-# Type username character by character safely
+# 4. Type username with 35ms cadence so no characters are lost
 foreach ($char in $user.ToCharArray()) {
     $cStr = [string]$char
     if ($cStr -match '[+^%~{}()\\[\\]]') {
@@ -280,14 +280,21 @@ foreach ($char in $user.ToCharArray()) {
     } else {
         [System.Windows.Forms.SendKeys]::SendWait($cStr)
     }
+    Start-Sleep -Milliseconds 35
 }
-Start-Sleep -Milliseconds 250
 
-# Tab to password field
+# 5. Pause before tabbing to password
+Start-Sleep -Milliseconds 400
+
+# 6. Tab to password field
 [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+Start-Sleep -Milliseconds 350
+
+# Clear password field just in case
+[System.Windows.Forms.SendKeys]::SendWait('^a{BACKSPACE}')
 Start-Sleep -Milliseconds 200
 
-# Type password character by character safely
+# 7. Type password with 35ms cadence
 foreach ($char in $password.ToCharArray()) {
     $cStr = [string]$char
     if ($cStr -match '[+^%~{}()\\[\\]]') {
@@ -295,10 +302,13 @@ foreach ($char in $password.ToCharArray()) {
     } else {
         [System.Windows.Forms.SendKeys]::SendWait($cStr)
     }
+    Start-Sleep -Milliseconds 35
 }
-Start-Sleep -Milliseconds 300
 
-# Submit login
+# 8. Pause before submitting
+Start-Sleep -Milliseconds 450
+
+# 9. Submit login
 [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
 `;
 
@@ -311,9 +321,9 @@ Start-Sleep -Milliseconds 300
         }
       );
 
-      // Write credentials into STDIN and immediately close stream
-      psProcess.stdin.write(username + '\n');
-      psProcess.stdin.write(pass + '\n');
+      // Write credentials into STDIN with Windows CRLF and close stream
+      psProcess.stdin.write(username + '\r\n');
+      psProcess.stdin.write(pass + '\r\n');
       psProcess.stdin.end();
 
       psProcess.on('close', () => resolve());
@@ -325,7 +335,7 @@ Start-Sleep -Milliseconds 300
           psProcess.kill();
         } catch {}
         resolve();
-      }, 9000);
+      }, 15000);
     });
   }
 }
