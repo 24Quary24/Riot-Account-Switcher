@@ -89,6 +89,19 @@ export const AboutView: React.FC = () => {
         </div>
       </div>
 
+      {/* Credits & AI Collaboration */}
+      <div className="stat-box" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderRadius: '4px' }}>
+        <div>
+          <div style={{ fontSize: '13px', fontWeight: 700, color: '#FFF' }}>Created & Maintained by 24Quary24</div>
+          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+            Engineered in collaboration with Google DeepMind's Gemini AI assistant.
+          </div>
+        </div>
+        <span className="stat-chip accent-teal" style={{ padding: '4px 10px', fontSize: '11px', fontWeight: 700 }}>
+          AI Augmented Project
+        </span>
+      </div>
+
       <div style={{ fontSize: '11px', color: 'var(--text-dim)', lineHeight: '1.6', marginTop: '12px' }}>
         <strong>Disclaimer:</strong> This application is a third-party account manager and is not endorsed by, directly affiliated with, or sponsored by Riot Games, Inc. VALORANT and League of Legends are trademarks or registered trademarks of Riot Games, Inc.
       </div>

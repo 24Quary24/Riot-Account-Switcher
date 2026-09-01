@@ -6,6 +6,7 @@ A secure desktop application wrapper for managing multiple Riot Games accounts a
 [![Platform](https://img.shields.io/badge/Platform-Windows-0078D6.svg)](https://microsoft.com/windows)
 [![Release](https://img.shields.io/github/v/release/24Quary24/Riot-Account-Switcher?color=00B2A9)](https://github.com/24Quary24/Riot-Account-Switcher/releases)
 [![Binary Download](https://img.shields.io/badge/Download-v1.0.0%20.exe-E8402A?style=flat&logo=windows)](https://github.com/24Quary24/Riot-Account-Switcher/releases/download/v1.0.0/Riot-Account-Switcher.exe)
+[![Built with Gemini](https://img.shields.io/badge/Built%20with-Gemini%20AI-4285F4.svg?style=flat&logo=google)](https://deepmind.google/technologies/gemini/)
 
 ---
 
@@ -131,6 +132,13 @@ npx electron-builder --win portable
 ├── package.json             # Build scripts and electron configuration
 └── tsconfig.json            # TypeScript configuration
 ```
+
+---
+
+## Contributors & Acknowledgements
+
+- **Author & Maintainer**: [24Quary24](https://github.com/24Quary24)
+- **AI Engineering Partner**: Developed in collaboration with [Gemini](https://deepmind.google/technologies/gemini/) (Google DeepMind)
 
 ---
 
