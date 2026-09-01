@@ -48,12 +48,12 @@ export const AccountCard: React.FC<AccountCardProps> = ({
           <div className="card-identity">
             <div className="account-label">
               <span>{account.label}</span>
-              {valLevel && valLevel > 1 && (
+              {(account.games === 'valorant' || account.games === 'both') && valLevel && valLevel > 1 && (
                 <span className="level-tag" title="Valorant Account Level">
                   LVL {valLevel}
                 </span>
               )}
-              {lolLevel && lolLevel > 1 && (
+              {(account.games === 'league' || account.games === 'both') && lolLevel && lolLevel > 1 && (
                 <span className="level-tag lol" title="League Summoner Level">
                   LVL {lolLevel}
                 </span>
@@ -197,7 +197,7 @@ export const AccountCard: React.FC<AccountCardProps> = ({
 
         {/* Currency & Inventory Strip on Main Page */}
         <div className="stat-chip-row">
-          {account.valorantStats && (
+          {(account.games === 'valorant' || account.games === 'both') && account.valorantStats && (
             <>
               <span className="stat-chip accent-red" title="Valorant Points">
                 <Coins size={11} /> {account.valorantStats.vpBalance.toLocaleString()} VP
@@ -218,7 +218,7 @@ export const AccountCard: React.FC<AccountCardProps> = ({
             </>
           )}
 
-          {account.leagueStats && (
+          {(account.games === 'league' || account.games === 'both') && account.leagueStats && (
             <>
               <span className="stat-chip accent-gold" title="Riot Points (RP)">
                 <Coins size={11} /> {account.leagueStats.rpBalance.toLocaleString()} RP
