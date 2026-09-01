@@ -40,6 +40,7 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
   const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
+    if (!isOpen) return;
     if (editingAccount) {
       setLabel(editingAccount.label);
       setUsername(editingAccount.username);
@@ -60,28 +61,19 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
       setHas2fa(false);
     }
     setErrorMsg('');
+    setShowPassword(false);
   }, [editingAccount, isOpen]);
 
   if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!label.trim()) {
-      setErrorMsg('Account label is required');
-      return;
-    }
-    if (!username.trim()) {
-      setErrorMsg('Username is required');
-      return;
-    }
-    if (!editingAccount && !password.trim()) {
-      setErrorMsg('Password is required for new accounts');
-      return;
-    }
+    if (!label.trim()) { setErrorMsg('Account label is required'); return; }
+    if (!username.trim()) { setErrorMsg('Username is required'); return; }
+    if (!editingAccount && !password.trim()) { setErrorMsg('Password is required for new accounts'); return; }
 
     setIsSubmitting(true);
     setErrorMsg('');
-
     try {
       const accountData: RiotAccount = {
         id: editingAccount ? editingAccount.id : `acc-${Date.now()}`,
@@ -94,8 +86,7 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
         has2fa,
         createdAt: editingAccount ? editingAccount.createdAt : new Date().toISOString(),
       };
-
-      await onSave(accountData, password.trim() ? password.trim() : undefined);
+      await onSave(accountData, password.trim() || undefined);
       onClose();
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to save account');
@@ -105,75 +96,57 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-box" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '440px' }}>
+    <div
+      className="modal-overlay"
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="modal-content" style={{ maxWidth: '460px' }}>
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Key size={18} color="var(--riot-teal)" />
             <h2 style={{ fontSize: '15px', fontWeight: 700, color: '#FFF' }}>
-              {editingAccount ? 'Edit Riot Account' : 'Add New Riot Account'}
+              {editingAccount ? 'Edit Account' : 'Add Riot Account'}
             </h2>
           </div>
-          <button className="btn btn-secondary btn-icon btn-sm" onClick={onClose}>
+          <button type="button" className="btn btn-secondary btn-icon btn-sm" onClick={onClose}>
             <X size={16} />
           </button>
         </div>
 
         <form onSubmit={handleSubmit}>
-          <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div className="modal-body">
             {errorMsg && (
-              <div
-                style={{
-                  padding: '8px 12px',
-                  background: 'rgba(235, 0, 41, 0.12)',
-                  border: '1px solid var(--riot-red)',
-                  borderRadius: '4px',
-                  color: '#FF6B7A',
-                  fontSize: '12px',
-                }}
-              >
+              <div style={{ padding: '8px 12px', background: 'rgba(235,0,41,0.12)', border: '1px solid var(--riot-red)', borderRadius: '4px', color: '#FF6B7A', fontSize: '12px' }}>
                 {errorMsg}
               </div>
             )}
 
-            {/* Account Label */}
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label className="form-label">
-                <Tag size={12} style={{ display: 'inline', marginRight: '4px' }} />
-                Account Label / Nickname *
-              </label>
+            {/* Label */}
+            <div className="form-group">
+              <label className="form-label"><Tag size={12} style={{ display: 'inline', marginRight: '4px' }} />Account Label / Nickname *</label>
               <input
                 type="text"
                 className="form-input"
-                placeholder="e.g. Main EUW, Smurf, Herdyn"
+                placeholder="e.g. Main, Smurf, Herdyn"
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
-                autoFocus
               />
             </div>
 
-            {/* Username & Password */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">
-                  <User size={12} style={{ display: 'inline', marginRight: '4px' }} />
-                  Login Username *
-                </label>
+            {/* Username + Password */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div className="form-group">
+                <label className="form-label"><User size={12} style={{ display: 'inline', marginRight: '4px' }} />Login Username *</label>
                 <input
                   type="text"
                   className="form-input"
-                  placeholder="Riot Username"
+                  placeholder="Riot username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  disabled={!!editingAccount}
                 />
               </div>
-
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">
-                  <Key size={12} style={{ display: 'inline', marginRight: '4px' }} />
-                  {editingAccount ? 'Password (blank = keep)' : 'Password *'}
-                </label>
+              <div className="form-group">
+                <label className="form-label"><Key size={12} style={{ display: 'inline', marginRight: '4px' }} />{editingAccount ? 'Password (blank = keep)' : 'Password *'}</label>
                 <div style={{ position: 'relative' }}>
                   <input
                     type={showPassword ? 'text' : 'password'}
@@ -181,21 +154,12 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
                     placeholder="••••••••"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    style={{ paddingRight: '36px' }}
+                    style={{ paddingRight: '38px' }}
                   />
                   <button
                     type="button"
-                    className="btn btn-icon"
                     onClick={() => setShowPassword(!showPassword)}
-                    style={{
-                      position: 'absolute',
-                      right: '6px',
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      background: 'transparent',
-                      border: 'none',
-                      color: 'var(--text-dim)',
-                    }}
+                    style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
                   >
                     {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
                   </button>
@@ -203,46 +167,29 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
               </div>
             </div>
 
-            {/* Game Target & Region */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">
-                  <Gamepad2 size={12} style={{ display: 'inline', marginRight: '4px' }} />
-                  Target Game
-                </label>
-                <select
-                  className="form-input"
-                  value={games}
-                  onChange={(e) => setGames(e.target.value as GameType)}
-                >
+            {/* Game + Region */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div className="form-group">
+                <label className="form-label"><Gamepad2 size={12} style={{ display: 'inline', marginRight: '4px' }} />Target Game</label>
+                <select className="form-input" value={games} onChange={(e) => setGames(e.target.value as GameType)}>
                   <option value="both">Valorant & League</option>
                   <option value="valorant">VALORANT Only</option>
                   <option value="league">League of Legends Only</option>
                 </select>
               </div>
-
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">
-                  <Globe size={12} style={{ display: 'inline', marginRight: '4px' }} />
-                  Region
-                </label>
-                <select
-                  className="form-input"
-                  value={region}
-                  onChange={(e) => setRegion(e.target.value as Region)}
-                >
+              <div className="form-group">
+                <label className="form-label"><Globe size={12} style={{ display: 'inline', marginRight: '4px' }} />Region</label>
+                <select className="form-input" value={region} onChange={(e) => setRegion(e.target.value as Region)}>
                   {REGIONS.map((r) => (
-                    <option key={r.value} value={r.value}>
-                      {r.label}
-                    </option>
+                    <option key={r.value} value={r.value}>{r.label}</option>
                   ))}
                 </select>
               </div>
             </div>
 
-            {/* Optional Riot ID & Tagline */}
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '10px' }}>
-              <div className="form-group" style={{ marginBottom: 0 }}>
+            {/* Riot ID (optional) */}
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px' }}>
+              <div className="form-group">
                 <label className="form-label">In-Game Riot ID (Optional)</label>
                 <input
                   type="text"
@@ -252,41 +199,25 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
                   onChange={(e) => setRiotId(e.target.value)}
                 />
               </div>
-
-              <div className="form-group" style={{ marginBottom: 0 }}>
+              <div className="form-group">
                 <label className="form-label">Tagline</label>
                 <input
                   type="text"
                   className="form-input"
-                  placeholder="e.g. EUNE, ELO"
+                  placeholder="EUNE, ELO"
                   value={tagline}
                   onChange={(e) => setTagline(e.target.value.replace(/^#/, ''))}
                 />
               </div>
             </div>
 
-            {/* 2FA Indicator Toggle */}
-            <div
-              style={{
-                marginTop: '4px',
-                padding: '8px 12px',
-                background: 'rgba(255, 255, 255, 0.03)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: '4px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {/* 2FA toggle */}
+            <div style={{ padding: '10px 14px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-subtle)', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <ShieldCheck size={16} color={has2fa ? 'var(--riot-teal)' : 'var(--text-dim)'} />
                 <div>
-                  <div style={{ fontSize: '12px', fontWeight: 600, color: '#FFF' }}>
-                    Two-Factor Authentication (2FA)
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                    Shows 2FA alert badge on the account card
-                  </div>
+                  <div style={{ fontSize: '12px', fontWeight: 600, color: '#FFF' }}>Two-Factor Authentication (2FA)</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Shows 2FA badge on the card</div>
                 </div>
               </div>
               <input
@@ -299,9 +230,7 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
           </div>
 
           <div className="modal-footer">
-            <button type="button" className="btn btn-secondary" onClick={onClose} disabled={isSubmitting}>
-              Cancel
-            </button>
+            <button type="button" className="btn btn-secondary" onClick={onClose} disabled={isSubmitting}>Cancel</button>
             <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
               {isSubmitting ? 'Saving...' : editingAccount ? 'Save Changes' : 'Add Account'}
             </button>
