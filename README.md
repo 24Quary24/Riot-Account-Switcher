@@ -1,107 +1,145 @@
-# 🎮 Riot Account Switcher
+# Riot Account Switcher
 
-A high-performance, secure desktop application wrapper for managing multiple Riot Games accounts across **VALORANT** and **League of Legends**. Switch accounts with a single click, automatically sync real-time in-game statistics directly from the Riot Client, and monitor regional server latencies.
+A secure desktop application wrapper for managing multiple Riot Games accounts across VALORANT and League of Legends. Switch accounts with a single click, automatically synchronize real-time in-game statistics directly from the Riot Client, and monitor regional server latency.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-red.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Platform](https://img.shields.io/badge/Platform-Windows-0078D6.svg)](https://microsoft.com/windows)
-[![Release](https://img.shields.io/github/v/release/24Quary24/Riot-Account-Switcher?color=00F5D4)](https://github.com/24Quary24/Riot-Account-Switcher/releases)
-[![Download](https://img.shields.io/badge/Download-v1.0.0%20.exe-FF4655?style=flat&logo=windows)](https://github.com/24Quary24/Riot-Account-Switcher/releases/download/v1.0.0/Riot-Account-Switcher.exe)
+[![Release](https://img.shields.io/github/v/release/24Quary24/Riot-Account-Switcher?color=00B2A9)](https://github.com/24Quary24/Riot-Account-Switcher/releases)
+[![Binary Download](https://img.shields.io/badge/Download-v1.0.0%20.exe-E8402A?style=flat&logo=windows)](https://github.com/24Quary24/Riot-Account-Switcher/releases/download/v1.0.0/Riot-Account-Switcher.exe)
 
 ---
 
-## ✨ Features
+## Overview
 
-### ⚡ 1-Click Instant Account Switching
-- Switch between multiple Riot accounts without manually logging out and re-entering credentials.
-- Auto-launches **VALORANT** or **League of Legends** with the selected profile.
-- Secure standard input (`stdin`) automation avoids exposing credentials in Windows command-line arguments or Task Manager.
-
-### 🛡️ Two-Factor Authentication (2FA / MFA) Support
-- Visual `2FA Active` badge on account cards in the switcher window.
-- Dedicated 2FA status prompt reminds you to approve the email or mobile authenticator code upon switching.
-
-### 📊 Real-Time Riot In-Game Stats Sync (Zero API Keys Needed!)
-- Direct local integration with active Riot Client sessions (`%LOCALAPPDATA%\Riot Games\Riot Client\Config\lockfile`).
-- **VALORANT Data**:
-  - **Account Level** (real progression from Riot's XP endpoint).
-  - **Rank & Rank Rating** (RR) with accurate unranked detection for accounts under Level 20.
-  - **Live Balances**: Valorant Points (VP), Radianite Points (RAD), and Kingdom Credits (KC).
-  - **Collection Overview**: Weapon skins count & agents unlocked.
-  - **Match History**: Maps, scores, agents, KDA, and headshot percentages.
-- **League of Legends Data**:
-  - **Summoner Level** & Solo/Duo rank + LP + winrate (W/L).
-  - **Live Balances**: Riot Points (RP) & Blue Essence (BE).
-  - **Collection Overview**: Total Champions owned & Skins owned.
-  - **Top Champion Masteries**: Levels, points, and recent match breakdowns.
-
-### ⚡ Auto-Detect Riot ID & Tagline
-- With Riot Client open, click **Auto-Detect from Riot Client** to instantly populate your Riot ID name, tagline (`#TAG`), and server region without manual typing.
-
-### 🔐 Bank-Grade Hardware Encryption
-- **Windows DPAPI**: Account passwords encrypted at rest via Electron's `safeStorage` (bound to your Windows user account and TPM hardware).
-- **AES-256-GCM Portable Backup**: Encrypted JSON vault export/import protected by PBKDF2 (100,000 iterations) and an optional master passphrase.
-- **Isolated Renderer**: `contextIsolation: true`, `sandbox: true`, and strict navigation restrictions.
-
-### 🌐 Regional Ping Monitor
-- Live round-trip TCP/HTTP latency measurement across 9 Riot cluster regions:
-  - **North America (NA)** — Chicago
-  - **Europe West (EUW)** — Frankfurt
-  - **Europe Nordic & East (EUNE)** — Frankfurt
-  - **Korea (KR)** — Seoul
-  - **Asia Pacific (AP)** — Singapore
-  - **Brazil (BR)** — São Paulo
-  - **Latin America North (LAN)** — Mexico City
-  - **Latin America South (LAS)** — Santiago
-  - **Oceania (OCE)** — Sydney
-
-### 📌 System Tray Integration
-- Minimizes cleanly to the Windows taskbar notification tray.
-- Right-click tray menu for instant 1-click game launching per account without opening the dashboard.
+Riot Account Switcher streamlines account management for players with multiple Riot accounts. It eliminates manual logout/login cycles by securely automating credential submission and process launch, while pulling real-time profile data, ranked ratings, and currencies without requiring third-party API keys.
 
 ---
 
-## 🚀 Getting Started
+## Key Features
 
-### Option 1: Standalone 1-Click Executable (No Setup Required)
-1. Download or run **`Riot Account Switcher.exe`** from the repository root.
-2. The app opens immediately with no prerequisites or installer needed.
+### Fast Account Switching
+- Switch between saved Riot accounts with a single click.
+- Automatically launches VALORANT or League of Legends using the selected profile.
+- Process management terminates conflicting client instances gracefully before launching.
+- Secure credential injection pipes authentication data directly to standard input (`stdin`), avoiding exposure in process arguments.
 
-### Option 2: Run / Build from Source
-Ensure you have **Node.js** (v18+ recommended) installed.
+### Real-Time Client Statistics
+- Direct integration with local Riot Client lockfile endpoints (`%LOCALAPPDATA%\Riot Games\Riot Client\Config\lockfile`).
+- **VALORANT**:
+  - Account Level (accurate XP progression directly from Riot endpoints).
+  - Current Competitive Rank, Rank Rating (RR), and Peak Rank.
+  - Accurate Unranked detection for accounts under Level 20.
+  - Live Currencies: Valorant Points (VP), Radianite (RAD), and Kingdom Credits (KC).
+  - Collection Overview: Weapon skins count and unlocked agents.
+  - Recent match history with maps, agents, scores, and headshot percentages.
+- **League of Legends**:
+  - Summoner Level and Solo/Duo rank, LP, and winrate.
+  - Flex queue rank and LP.
+  - Live Currencies: Riot Points (RP) and Blue Essence (BE).
+  - Collection Overview: Owned champions and skins count.
+  - Top champion masteries with mastery levels and points.
+
+### Auto-Detection
+- One-click auto-detection imports the active Riot ID name, tagline (`#TAG`), and region directly from the active Riot Client session.
+
+### Two-Factor Authentication (2FA / MFA) Support
+- Account flags highlight 2FA-protected profiles.
+- Integrated sign-in status prompts guide the user through completing email or authenticator verification.
+
+### Regional Ping Monitor
+- Real-time round-trip latency checks across 9 Riot cluster regions:
+  - North America (NA) — Chicago
+  - Europe West (EUW) — Frankfurt
+  - Europe Nordic & East (EUNE) — Frankfurt
+  - Korea (KR) — Seoul
+  - Asia Pacific (AP) — Singapore
+  - Brazil (BR) — São Paulo
+  - Latin America North (LAN) — Mexico City
+  - Latin America South (LAS) — Santiago
+  - Oceania (OCE) — Sydney
+
+### System Tray Integration
+- Minimizes to the Windows taskbar notification tray.
+- Context menu supports quick account switching and direct game launch without opening the main window.
+
+---
+
+## Security Architecture
+
+The application is designed following least-privilege and zero-trust local storage principles.
+
+| Component | Security Mechanism |
+|---|---|
+| **Credentials at Rest** | Passwords are encrypted using Windows DPAPI via Electron's `safeStorage` API, hardware-bound to the user's OS profile. |
+| **Credential Injection** | Authentication strings are transmitted exclusively via PowerShell standard input (`stdin`). No plain-text passwords appear in command-line arguments or process inspection tools. |
+| **Keystroke Sanitization** | SendKeys modifier sequences (`+`, `^`, `%`, `~`, `{}`, `[]`) are escaped and bracketed to prevent injection vulnerabilities. |
+| **Vault Backups** | Encrypted JSON backups use AES-256-GCM authenticated encryption with PBKDF2 key derivation (100,000 rounds). |
+| **File Permissions** | Configuration and credential stores are written with restricted file permissions (`mode: 0o600`). |
+| **Renderer Isolation** | The user interface runs in a sandboxed context (`sandbox: true`, `contextIsolation: true`, `nodeIntegration: false`). Navigation is strictly restricted to local assets. |
+
+---
+
+## Installation & Usage
+
+### Standalone Binary (Recommended)
+1. Download **`Riot-Account-Switcher.exe`** from the [Releases page](https://github.com/24Quary24/Riot-Account-Switcher/releases).
+2. Double-click the executable to launch. No installer or runtime dependencies are required.
+
+### Building from Source
+
+Prerequisites: Node.js 18 or higher.
 
 ```bash
-# 1. Clone the repository
+# Clone the repository
 git clone https://github.com/24Quary24/Riot-Account-Switcher.git
 cd Riot-Account-Switcher
 
-# 2. Install dependencies
+# Install dependencies
 npm install
 
-# 3. Start in development mode
+# Run in development mode
 npm run dev
 
-# 4. Build standalone Windows executable
+# Compile TypeScript and bundle frontend
 npm run build
+
+# Package standalone portable Windows executable
 npx electron-builder --win portable
 ```
 
 ---
 
-## 🔒 Security Architecture
+## Project Structure
 
-| Vector | Protection Mechanism |
-|---|---|
-| **Passwords at Rest** | Encrypted via Windows DPAPI hardware-backed encryption (`safeStorage`). |
-| **Password Injection** | Piped directly through PowerShell's **standard input stream (`stdin`)**; credentials **never** appear in command-line arguments or task manager process inspection. |
-| **Keystroke Security** | All SendKeys modifier characters (`+`, `^`, `%`, `~`, `{}`, `[]`) are individually bracketed and sanitized. |
-| **File Permissions** | Vault files written with strict owner-only permissions (`mode: 0o600`). |
-| **Process Security** | Electron renderer sandboxed (`sandbox: true`, `nodeIntegration: false`, `contextIsolation: true`). External links open strictly in default browser. |
+```
+.
+├── assets/                  # Application and system tray icons
+├── electron/
+│   ├── main.ts              # Electron main process and IPC dispatch
+│   ├── preload.ts           # Context isolation bridge
+│   ├── types.ts             # Core data interfaces
+│   └── services/
+│       ├── launcher.ts      # Client execution and STDIN injection
+│       ├── pingService.ts   # Regional latency measurement
+│       ├── riotApi.ts       # Local Riot Client lockfile & API integration
+│       └── storage.ts       # DPAPI encrypted credential vault
+├── src/
+│   ├── components/          # React UI components
+│   ├── App.tsx              # Application shell and state
+│   ├── index.css            # Tactical theme styling
+│   └── theme.css            # Color tokens and design variables
+├── package.json             # Build scripts and electron configuration
+└── tsconfig.json            # TypeScript configuration
+```
 
 ---
 
-## 📜 License
-Distributed under the **MIT License**. See [`LICENSE`](./LICENSE) for more information.
+## License
+
+This project is licensed under the MIT License. See the [`LICENSE`](./LICENSE) file for details.
 
 ---
 
-*Disclaimer: Riot Account Switcher is an independent community project and is not endorsed by or affiliated with Riot Games, Inc. VALORANT, League of Legends, and Riot Games are trademarks or registered trademarks of Riot Games, Inc.*
+## Disclaimer
+
+Riot Account Switcher is an independent community utility and is not affiliated with, endorsed by, or sponsored by Riot Games, Inc. VALORANT, League of Legends, and all associated properties are trademarks or registered trademarks of Riot Games, Inc.
