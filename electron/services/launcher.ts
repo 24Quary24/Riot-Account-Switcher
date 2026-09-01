@@ -246,65 +246,108 @@ export class LauncherService {
 
   /**
    * Inject credentials via PowerShell STDIN.
-   * Characters are typed with a paced cadence so the Riot Client Chromium input registers every keystroke.
+   * Uses Win32 SetForegroundWindow (by process handle, not title) and verifies
+   * focus before every keystroke burst so keystrokes never land in a browser or
+   * wrong field when Riot Client loads slowly.
    */
   private async injectCredentialsViaStdin(username: string, pass: string): Promise<void> {
     return new Promise((resolve) => {
       const psScript = `
 $ErrorActionPreference = 'SilentlyContinue'
 Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName Microsoft.VisualBasic
+
+# --- Win32 helpers for reliable foreground control ---
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class Win32Focus {
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hWnd);
+}
+"@
 
 $user = [Console]::In.ReadLine()
 $password = [Console]::In.ReadLine()
 if (-not $user -or -not $password) { exit 0 }
 
-# Activate Riot Client window (retry 12 times x 500ms = 6 seconds)
-for ($i = 0; $i -lt 12; $i++) {
-    $activated = $false
-    try {
-        [Microsoft.VisualBasic.Interaction]::AppActivate("Riot Client")
-        $activated = $true
-    } catch {
-        $procs = Get-Process | Where-Object { $_.ProcessName -match "Riot Client|RiotClient" }
-        foreach ($p in $procs) {
-            try { [Microsoft.VisualBasic.Interaction]::AppActivate($p.Id); $activated = $true; break } catch {}
-        }
+# --- Find RiotClientUx window handle (this is the login UI process) ---
+$hwnd = [IntPtr]::Zero
+for ($i = 0; $i -lt 24; $i++) {
+    $procs = @(Get-Process | Where-Object {
+        ($_.ProcessName -match 'RiotClientUx' -or $_.ProcessName -match 'Riot Client') -and
+        $_.MainWindowHandle -ne 0
+    })
+    if ($procs.Count -gt 0) {
+        $hwnd = $procs[0].MainWindowHandle
+        break
     }
-    if ($activated) { break }
     Start-Sleep -Milliseconds 500
 }
 
-# Wait for login form to mount
-Start-Sleep -Milliseconds 1500
+if ($hwnd -eq [IntPtr]::Zero) { exit 1 }
 
-# Click top-left area of window to ensure focus, then clear username field
+# --- Force window to foreground using Win32 (not AppActivate) ---
+function Force-Focus {
+    param([IntPtr]$h)
+    [Win32Focus]::ShowWindow($h, 9) | Out-Null   # SW_RESTORE
+    Start-Sleep -Milliseconds 150
+    [Win32Focus]::BringWindowToTop($h) | Out-Null
+    [Win32Focus]::SetForegroundWindow($h) | Out-Null
+    Start-Sleep -Milliseconds 300
+    # Verify - retry once if focus was stolen
+    if ([Win32Focus]::GetForegroundWindow() -ne $h) {
+        [Win32Focus]::SetForegroundWindow($h) | Out-Null
+        Start-Sleep -Milliseconds 300
+    }
+}
+
+Force-Focus $hwnd
+
+# --- Wait for login form to mount ---
+Start-Sleep -Milliseconds 2000
+
+# Re-grab focus right before typing (in case something stole it during the wait)
+Force-Focus $hwnd
+Start-Sleep -Milliseconds 400
+
+# --- Clear and type username ---
 [System.Windows.Forms.SendKeys]::SendWait('^a{BACKSPACE}')
 Start-Sleep -Milliseconds 300
 
-# Type username
 foreach ($char in $user.ToCharArray()) {
+    # Re-verify Riot Client still has focus every 5 characters
+    if ([Win32Focus]::GetForegroundWindow() -ne $hwnd) { Force-Focus $hwnd; Start-Sleep -Milliseconds 200 }
     $c = [string]$char
     if ($c -match '[+^%~{}()\[\]]') { [System.Windows.Forms.SendKeys]::SendWait("{$c}") }
     else { [System.Windows.Forms.SendKeys]::SendWait($c) }
-    Start-Sleep -Milliseconds 40
+    Start-Sleep -Milliseconds 45
 }
 
 Start-Sleep -Milliseconds 400
+
+# --- Re-grab focus, then Tab to password field ---
+Force-Focus $hwnd
+Start-Sleep -Milliseconds 200
 [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
-Start-Sleep -Milliseconds 350
+Start-Sleep -Milliseconds 400
 [System.Windows.Forms.SendKeys]::SendWait('^a{BACKSPACE}')
 Start-Sleep -Milliseconds 200
 
-# Type password
+# --- Type password ---
 foreach ($char in $password.ToCharArray()) {
+    if ([Win32Focus]::GetForegroundWindow() -ne $hwnd) { Force-Focus $hwnd; Start-Sleep -Milliseconds 200 }
     $c = [string]$char
     if ($c -match '[+^%~{}()\[\]]') { [System.Windows.Forms.SendKeys]::SendWait("{$c}") }
     else { [System.Windows.Forms.SendKeys]::SendWait($c) }
-    Start-Sleep -Milliseconds 40
+    Start-Sleep -Milliseconds 45
 }
 
 Start-Sleep -Milliseconds 450
+Force-Focus $hwnd
+Start-Sleep -Milliseconds 150
 [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
 `;
 
@@ -318,46 +361,53 @@ Start-Sleep -Milliseconds 450
       ps.stdin.end();
       ps.on('close', () => resolve());
       ps.on('error', () => resolve());
-      setTimeout(() => { try { ps.kill(); } catch {} resolve(); }, 16000);
+      // Timeout: 12s wait + ~8s for typing a long password
+      setTimeout(() => { try { ps.kill(); } catch {} resolve(); }, 22000);
     });
   }
 
   /**
    * Click the Play button in Riot Client after login/launch.
-   * Tries twice with a gap in between to handle update screens.
+   * Uses Win32 SetForegroundWindow to ensure clicks go to Riot Client only.
+   * Tries twice with a delay to handle patch/update confirmation screens.
    */
   private async clickPlayButton(game: 'valorant' | 'league'): Promise<void> {
-    const windowTitle = game === 'valorant' ? 'VALORANT' : 'League of Legends';
-
     const psScript = `
 $ErrorActionPreference = 'SilentlyContinue'
 Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName Microsoft.VisualBasic
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class Win32Play {
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+}
+"@
 
-# Activate Riot Client window
-for ($i = 0; $i -lt 8; $i++) {
-    $activated = $false
-    try {
-        [Microsoft.VisualBasic.Interaction]::AppActivate("Riot Client")
-        $activated = $true
-    } catch {
-        $procs = Get-Process | Where-Object { $_.ProcessName -match "Riot Client|RiotClient" }
-        foreach ($p in $procs) {
-            try { [Microsoft.VisualBasic.Interaction]::AppActivate($p.Id); $activated = $true; break } catch {}
-        }
-    }
-    if ($activated) { break }
+$hwnd = [IntPtr]::Zero
+for ($i = 0; $i -lt 16; $i++) {
+    $procs = @(Get-Process | Where-Object {
+        ($_.ProcessName -match 'RiotClientUx' -or $_.ProcessName -match 'Riot Client') -and
+        $_.MainWindowHandle -ne 0
+    })
+    if ($procs.Count -gt 0) { $hwnd = $procs[0].MainWindowHandle; break }
     Start-Sleep -Milliseconds 500
 }
 
-Start-Sleep -Milliseconds 800
-
-# First ENTER press (hits Play button if it is focused, or confirms any dialog)
-[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-Start-Sleep -Milliseconds 3000
-
-# Second ENTER press to handle update confirmation or second-click requirement
-[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+if ($hwnd -ne [IntPtr]::Zero) {
+    [Win32Play]::ShowWindow($hwnd, 9) | Out-Null
+    [Win32Play]::BringWindowToTop($hwnd) | Out-Null
+    [Win32Play]::SetForegroundWindow($hwnd) | Out-Null
+    Start-Sleep -Milliseconds 800
+    # First ENTER — clicks Play (or any focused button on home screen)
+    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+    Start-Sleep -Milliseconds 3500
+    # Second ENTER — handles update confirmation or patch screen
+    [Win32Play]::SetForegroundWindow($hwnd) | Out-Null
+    Start-Sleep -Milliseconds 200
+    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+}
 `;
 
     await new Promise<void>((resolve) => {
@@ -368,7 +418,7 @@ Start-Sleep -Milliseconds 3000
       );
       ps.on('close', () => resolve());
       ps.on('error', () => resolve());
-      setTimeout(() => { try { ps.kill(); } catch {} resolve(); }, 12000);
+      setTimeout(() => { try { ps.kill(); } catch {} resolve(); }, 14000);
     });
   }
 }
