@@ -4,7 +4,8 @@ A high-performance, secure desktop application wrapper for managing multiple Rio
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-red.svg)](https://opensource.org/licenses/MIT)
 [![Platform](https://img.shields.io/badge/Platform-Windows-0078D6.svg)](https://microsoft.com/windows)
-[![Framework](https://img.shields.io/badge/Built%20With-Electron%20%7C%20React%2019%20%7C%20TypeScript-00F5D4.svg)](#)
+[![Release](https://img.shields.io/github/v/release/24Quary24/Riot-Account-Switcher?color=00F5D4)](https://github.com/24Quary24/Riot-Account-Switcher/releases)
+[![Download](https://img.shields.io/badge/Download-v1.0.0%20.exe-FF4655?style=flat&logo=windows)](https://github.com/24Quary24/Riot-Account-Switcher/releases/download/v1.0.0/Riot-Account-Switcher.exe)
 
 ---
 
