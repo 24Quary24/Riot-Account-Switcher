@@ -62,6 +62,7 @@ export class RiotApiService {
     riotId: string;
     tagline: string;
     puuid: string;
+    username?: string;
     region?: Region;
   } | null> {
     const lockfilePath = path.join(
@@ -103,6 +104,7 @@ export class RiotApiService {
           riotId: session.game_name,
           tagline: session.game_tag,
           puuid: session.puuid || '',
+          username: session.name || session.acct_name || '',
           region: detectedRegion,
         };
       }

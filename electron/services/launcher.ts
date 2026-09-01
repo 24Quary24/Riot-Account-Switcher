@@ -155,19 +155,25 @@ export class LauncherService {
 
     const productArg = game === 'valorant' ? 'valorant' : 'league_of_legends';
 
-    // 1. Check if the currently active Riot session already belongs to this account
+    // 1. Check if the currently active Riot session already belongs to this account.
+    //    Compare by username (most reliable) AND riotId as fallback.
     let isAlreadyActive = false;
     try {
       const active = await this.riotApi.detectActiveSession();
-      if (active && active.riotId && account.riotId) {
-        if (active.riotId.toLowerCase() === account.riotId.toLowerCase()) {
+      if (active) {
+        const sameByRiotId = active.riotId && account.riotId &&
+          active.riotId.toLowerCase() === account.riotId.toLowerCase();
+        const sameByUsername = active.username &&
+          active.username.toLowerCase() === account.username.toLowerCase();
+        if (sameByRiotId || sameByUsername) {
           isAlreadyActive = true;
         }
       }
     } catch {}
 
     if (isAlreadyActive) {
-      onStatus?.(`Already signed in as ${account.riotId || account.label}. Starting ${game.toUpperCase()}...`);
+      // Already logged in as this account — just launch the game
+      onStatus?.(`Already signed in as ${account.riotId || account.label}. Launching ${game.toUpperCase()}...`);
       const child = spawn(clientPath, [`--launch-product=${productArg}`, '--launch-patchline=live'], {
         detached: true,
         stdio: 'ignore',
@@ -175,12 +181,20 @@ export class LauncherService {
       });
       child.unref();
 
+      // Wait for the client to settle, then click the Play button
+      if (process.platform === 'win32') {
+        const waitSeconds = Math.max(4, Math.min(12, settings.launchDelaySeconds || 5));
+        onStatus?.(`Waiting ${waitSeconds}s for client to load, then clicking Play...`);
+        await new Promise((r) => setTimeout(r, waitSeconds * 1000));
+        await this.clickPlayButton(game);
+      }
+
       account.lastPlayed = new Date().toISOString();
       this.storage.saveAccount(account);
 
       return {
         success: true,
-        message: `Launched ${game.toUpperCase()} with active session ${account.riotId || account.label}!`,
+        message: `Launched ${game.toUpperCase()} for ${account.riotId || account.label}!`,
       };
     }
 
@@ -200,15 +214,21 @@ export class LauncherService {
 
     // Auto-login automation via secure STDIN
     if (process.platform === 'win32') {
-      const waitSeconds = Math.max(5, Math.min(15, settings.launchDelaySeconds || 6));
-      onStatus?.(`Waiting ${waitSeconds}s for Riot Client login screen to load...`);
-      await new Promise((r) => setTimeout(r, waitSeconds * 1000));
+      const loginWait = Math.max(5, Math.min(15, settings.launchDelaySeconds || 7));
+      onStatus?.(`Waiting ${loginWait}s for Riot Client login screen...`);
+      await new Promise((r) => setTimeout(r, loginWait * 1000));
 
       onStatus?.(`Entering credentials for ${account.username}...`);
       await this.injectCredentialsViaStdin(account.username, password);
 
       if (account.has2fa) {
-        onStatus?.('⚠️ 2FA Protected: Credentials entered! Enter your verification code in Riot Client.');
+        onStatus?.('2FA Protected: Credentials entered — complete your verification code in Riot Client.');
+      } else {
+        // Wait for login to complete + Riot Client home screen to load, then click Play
+        onStatus?.('Login submitted. Waiting for home screen to load...');
+        await new Promise((r) => setTimeout(r, 8000));
+        onStatus?.('Clicking Play button...');
+        await this.clickPlayButton(game);
       }
     }
 
@@ -219,123 +239,136 @@ export class LauncherService {
     return {
       success: true,
       message: account.has2fa
-        ? `Credentials entered! Please approve the 2FA prompt in Riot Client.`
-        : `Switched & launched ${game.toUpperCase()} with account: ${account.riotId || account.label}`,
+        ? `Credentials entered — complete 2FA in Riot Client.`
+        : `Switched to ${account.riotId || account.label} and launched ${game.toUpperCase()}.`,
     };
   }
 
   /**
-   * Bank-grade secure automation:
-   * Pass credentials strictly through PowerShell's STDIN pipe.
-   * Uses paced typing cadence to ensure Chromium/Electron registers both username and password.
+   * Inject credentials via PowerShell STDIN.
+   * Characters are typed with a paced cadence so the Riot Client Chromium input registers every keystroke.
    */
   private async injectCredentialsViaStdin(username: string, pass: string): Promise<void> {
     return new Promise((resolve) => {
-      // Secure PowerShell script that reads credentials line by line from STDIN
       const psScript = `
 $ErrorActionPreference = 'SilentlyContinue'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName Microsoft.VisualBasic
 
-# Read credentials from STDIN stream
 $user = [Console]::In.ReadLine()
 $password = [Console]::In.ReadLine()
-
 if (-not $user -or -not $password) { exit 0 }
 
-# 1. Locate and activate Riot Client window (retry up to 10 times)
-for ($i = 0; $i -lt 10; $i++) {
+# Activate Riot Client window (retry 12 times x 500ms = 6 seconds)
+for ($i = 0; $i -lt 12; $i++) {
     $activated = $false
     try {
         [Microsoft.VisualBasic.Interaction]::AppActivate("Riot Client")
         $activated = $true
     } catch {
         $procs = Get-Process | Where-Object { $_.ProcessName -match "Riot Client|RiotClient" }
-        if ($procs) {
-            foreach ($p in $procs) {
-                try {
-                    [Microsoft.VisualBasic.Interaction]::AppActivate($p.Id)
-                    $activated = $true
-                    break
-                } catch {}
-            }
+        foreach ($p in $procs) {
+            try { [Microsoft.VisualBasic.Interaction]::AppActivate($p.Id); $activated = $true; break } catch {}
         }
     }
     if ($activated) { break }
     Start-Sleep -Milliseconds 500
 }
 
-# 2. Critical pause: Give Electron webview 1.5 seconds to mount and focus input
+# Wait for login form to mount
 Start-Sleep -Milliseconds 1500
 
-# 3. Focus and clear username field
+# Click top-left area of window to ensure focus, then clear username field
 [System.Windows.Forms.SendKeys]::SendWait('^a{BACKSPACE}')
-Start-Sleep -Milliseconds 250
+Start-Sleep -Milliseconds 300
 
-# 4. Type username with 35ms cadence so no characters are lost
+# Type username
 foreach ($char in $user.ToCharArray()) {
-    $cStr = [string]$char
-    if ($cStr -match '[+^%~{}()\\[\\]]') {
-        [System.Windows.Forms.SendKeys]::SendWait("{$cStr}")
-    } else {
-        [System.Windows.Forms.SendKeys]::SendWait($cStr)
-    }
-    Start-Sleep -Milliseconds 35
+    $c = [string]$char
+    if ($c -match '[+^%~{}()\[\]]') { [System.Windows.Forms.SendKeys]::SendWait("{$c}") }
+    else { [System.Windows.Forms.SendKeys]::SendWait($c) }
+    Start-Sleep -Milliseconds 40
 }
 
-# 5. Pause before tabbing to password
 Start-Sleep -Milliseconds 400
-
-# 6. Tab to password field
 [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
 Start-Sleep -Milliseconds 350
-
-# Clear password field just in case
 [System.Windows.Forms.SendKeys]::SendWait('^a{BACKSPACE}')
 Start-Sleep -Milliseconds 200
 
-# 7. Type password with 35ms cadence
+# Type password
 foreach ($char in $password.ToCharArray()) {
-    $cStr = [string]$char
-    if ($cStr -match '[+^%~{}()\\[\\]]') {
-        [System.Windows.Forms.SendKeys]::SendWait("{$cStr}")
-    } else {
-        [System.Windows.Forms.SendKeys]::SendWait($cStr)
-    }
-    Start-Sleep -Milliseconds 35
+    $c = [string]$char
+    if ($c -match '[+^%~{}()\[\]]') { [System.Windows.Forms.SendKeys]::SendWait("{$c}") }
+    else { [System.Windows.Forms.SendKeys]::SendWait($c) }
+    Start-Sleep -Milliseconds 40
 }
 
-# 8. Pause before submitting
 Start-Sleep -Milliseconds 450
-
-# 9. Submit login
 [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
 `;
 
-      const psProcess = spawn(
+      const ps = spawn(
         'powershell.exe',
         ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', psScript],
-        {
-          windowsHide: true,
-          stdio: ['pipe', 'ignore', 'ignore'],
-        }
+        { windowsHide: true, stdio: ['pipe', 'ignore', 'ignore'] }
       );
+      ps.stdin.write(username + '\r\n');
+      ps.stdin.write(pass + '\r\n');
+      ps.stdin.end();
+      ps.on('close', () => resolve());
+      ps.on('error', () => resolve());
+      setTimeout(() => { try { ps.kill(); } catch {} resolve(); }, 16000);
+    });
+  }
 
-      // Write credentials into STDIN with Windows CRLF and close stream
-      psProcess.stdin.write(username + '\r\n');
-      psProcess.stdin.write(pass + '\r\n');
-      psProcess.stdin.end();
+  /**
+   * Click the Play button in Riot Client after login/launch.
+   * Tries twice with a gap in between to handle update screens.
+   */
+  private async clickPlayButton(game: 'valorant' | 'league'): Promise<void> {
+    const windowTitle = game === 'valorant' ? 'VALORANT' : 'League of Legends';
 
-      psProcess.on('close', () => resolve());
-      psProcess.on('error', () => resolve());
+    const psScript = `
+$ErrorActionPreference = 'SilentlyContinue'
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName Microsoft.VisualBasic
 
-      // Timeout safety guard
-      setTimeout(() => {
-        try {
-          psProcess.kill();
-        } catch {}
-        resolve();
-      }, 15000);
+# Activate Riot Client window
+for ($i = 0; $i -lt 8; $i++) {
+    $activated = $false
+    try {
+        [Microsoft.VisualBasic.Interaction]::AppActivate("Riot Client")
+        $activated = $true
+    } catch {
+        $procs = Get-Process | Where-Object { $_.ProcessName -match "Riot Client|RiotClient" }
+        foreach ($p in $procs) {
+            try { [Microsoft.VisualBasic.Interaction]::AppActivate($p.Id); $activated = $true; break } catch {}
+        }
+    }
+    if ($activated) { break }
+    Start-Sleep -Milliseconds 500
+}
+
+Start-Sleep -Milliseconds 800
+
+# First ENTER press (hits Play button if it is focused, or confirms any dialog)
+[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+Start-Sleep -Milliseconds 3000
+
+# Second ENTER press to handle update confirmation or second-click requirement
+[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+`;
+
+    await new Promise<void>((resolve) => {
+      const ps = spawn(
+        'powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', psScript],
+        { windowsHide: true, stdio: 'ignore' }
+      );
+      ps.on('close', () => resolve());
+      ps.on('error', () => resolve());
+      setTimeout(() => { try { ps.kill(); } catch {} resolve(); }, 12000);
     });
   }
 }
