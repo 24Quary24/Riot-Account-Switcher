@@ -367,24 +367,41 @@ Start-Sleep -Milliseconds 150
   }
 
   /**
-   * Click the Play button in Riot Client after login/launch.
-   * Uses Win32 SetForegroundWindow to ensure clicks go to Riot Client only.
-   * Tries twice with a delay to handle patch/update confirmation screens.
+  /**
+   * Click the Play button in Riot Client using a real mouse click.
+   * The Play button is not keyboard-focusable — Enter only works when hovered.
+   * We get the window rect via Win32 and click at the known relative position
+   * (~14% from left, ~87% from top) which matches where Riot Client renders it.
+   * Clicks twice with a delay to handle "New Update Available" confirmation.
    */
   private async clickPlayButton(game: 'valorant' | 'league'): Promise<void> {
     const psScript = `
 $ErrorActionPreference = 'SilentlyContinue'
-Add-Type -AssemblyName System.Windows.Forms
 Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
-public class Win32Play {
+using System.Threading;
+public class Win32Mouse {
+    public struct RECT { public int Left, Top, Right, Bottom; }
+
+    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT r);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hWnd);
-    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int n);
+    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] public static extern void mouse_event(uint f, int x, int y, uint d, IntPtr e);
+
+    public static void Click(int x, int y) {
+        SetCursorPos(x, y);
+        Thread.Sleep(120);
+        mouse_event(0x0002, 0, 0, 0, IntPtr.Zero); // MOUSEEVENTF_LEFTDOWN
+        Thread.Sleep(60);
+        mouse_event(0x0004, 0, 0, 0, IntPtr.Zero); // MOUSEEVENTF_LEFTUP
+    }
 }
 "@
 
+# Find RiotClientUx window
 $hwnd = [IntPtr]::Zero
 for ($i = 0; $i -lt 16; $i++) {
     $procs = @(Get-Process | Where-Object {
@@ -395,19 +412,33 @@ for ($i = 0; $i -lt 16; $i++) {
     Start-Sleep -Milliseconds 500
 }
 
-if ($hwnd -ne [IntPtr]::Zero) {
-    [Win32Play]::ShowWindow($hwnd, 9) | Out-Null
-    [Win32Play]::BringWindowToTop($hwnd) | Out-Null
-    [Win32Play]::SetForegroundWindow($hwnd) | Out-Null
-    Start-Sleep -Milliseconds 800
-    # First ENTER — clicks Play (or any focused button on home screen)
-    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-    Start-Sleep -Milliseconds 3500
-    # Second ENTER — handles update confirmation or patch screen
-    [Win32Play]::SetForegroundWindow($hwnd) | Out-Null
-    Start-Sleep -Milliseconds 200
-    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-}
+if ($hwnd -eq [IntPtr]::Zero) { exit 1 }
+
+# Bring window to front
+[Win32Mouse]::ShowWindow($hwnd, 9) | Out-Null
+[Win32Mouse]::BringWindowToTop($hwnd) | Out-Null
+[Win32Mouse]::SetForegroundWindow($hwnd) | Out-Null
+Start-Sleep -Milliseconds 800
+
+# Get window rect and calculate Play button position
+$r = New-Object Win32Mouse+RECT
+[Win32Mouse]::GetWindowRect($hwnd, [ref]$r)
+
+$w = $r.Right - $r.Left
+$h = $r.Bottom - $r.Top
+
+# Play button sits at roughly 14% from left, 87% from top in Riot Client
+$playX = $r.Left + [int]($w * 0.14)
+$playY = $r.Top + [int]($h * 0.87)
+
+# First click — Play button
+[Win32Mouse]::Click($playX, $playY)
+Start-Sleep -Milliseconds 3500
+
+# Re-grab focus and click again — handles "New Update Available" confirmation
+[Win32Mouse]::SetForegroundWindow($hwnd) | Out-Null
+Start-Sleep -Milliseconds 300
+[Win32Mouse]::Click($playX, $playY)
 `;
 
     await new Promise<void>((resolve) => {
@@ -418,7 +449,7 @@ if ($hwnd -ne [IntPtr]::Zero) {
       );
       ps.on('close', () => resolve());
       ps.on('error', () => resolve());
-      setTimeout(() => { try { ps.kill(); } catch {} resolve(); }, 14000);
+      setTimeout(() => { try { ps.kill(); } catch {} resolve(); }, 15000);
     });
   }
 }
