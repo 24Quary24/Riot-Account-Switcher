@@ -57,34 +57,43 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
       setPassword('');
       setRiotId('');
       setTagline('');
-      setRegion('EUNE');
+      setRegion('EUW');
       setGames('both');
       setHas2fa(false);
-      // Automatically attempt to detect active session in background
-      autoDetectActiveSession(true);
     }
     setErrorMsg('');
     setDetectSuccess(false);
   }, [editingAccount, isOpen]);
 
-  const autoDetectActiveSession = async (silent: boolean = false) => {
+  const autoDetectActiveSession = async () => {
     try {
       setIsDetecting(true);
+      setErrorMsg('');
       const api = (window as any).riotManagerApi;
       if (!api || !api.detectActiveSession) return;
       const detected = await api.detectActiveSession();
       if (detected && detected.riotId) {
+        const currentName = editingAccount?.riotId || editingAccount?.label || label || username;
+        if (currentName && currentName.trim() !== '' && detected.riotId.toLowerCase() !== currentName.toLowerCase()) {
+          const proceed = window.confirm(
+            `The currently active Riot Client session belongs to:\n• Riot ID: ${detected.riotId}#${detected.tagline}\n• Region: ${detected.region}\n\nYour account is currently set to "${currentName}".\n\nDo you want to overwrite with ${detected.riotId}#${detected.tagline}?`
+          );
+          if (!proceed) {
+            setIsDetecting(false);
+            return;
+          }
+        }
         setRiotId(detected.riotId);
         setTagline(detected.tagline);
         if (!label) setLabel(detected.riotId);
         if (detected.region) setRegion(detected.region);
         setDetectSuccess(true);
         setTimeout(() => setDetectSuccess(false), 4000);
-      } else if (!silent) {
-        setErrorMsg('No active Riot Client session detected. Please make sure Riot Client is open.');
+      } else {
+        setErrorMsg('No active Riot Client session detected. Please make sure Riot Client is open and logged into an account.');
       }
     } catch (err: any) {
-      if (!silent) setErrorMsg('Failed to detect Riot session: ' + err.message);
+      setErrorMsg('Failed to detect Riot session: ' + err.message);
     } finally {
       setIsDetecting(false);
     }
@@ -205,7 +214,7 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
-                onClick={() => autoDetectActiveSession(false)}
+                onClick={() => autoDetectActiveSession()}
                 disabled={isDetecting}
                 style={{
                   fontSize: '11px',

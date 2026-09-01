@@ -1,13 +1,17 @@
 import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import https from 'https';
 import { StorageService } from './storage';
+import { RiotApiService } from './riotApi';
 
 export class LauncherService {
   private storage: StorageService;
+  private riotApi: RiotApiService;
 
-  constructor(storage: StorageService) {
+  constructor(storage: StorageService, riotApi: RiotApiService) {
     this.storage = storage;
+    this.riotApi = riotApi;
   }
 
   /**
@@ -38,12 +42,57 @@ export class LauncherService {
 
   /**
    * Gracefully terminate running Riot and League/Valorant processes safely.
+   * Also deletes active session on Riot Client so it resets to the login screen.
    */
   public async closeRunningClients(): Promise<void> {
     if (process.platform !== 'win32') return;
 
+    // 1. If Riot Client is active, call DELETE /rso-auth/v1/session to log out cleanly
+    const lockfilePath = path.join(
+      process.env.LOCALAPPDATA || '',
+      'Riot Games',
+      'Riot Client',
+      'Config',
+      'lockfile'
+    );
+
+    if (fs.existsSync(lockfilePath)) {
+      try {
+        const content = fs.readFileSync(lockfilePath, 'utf-8');
+        const parts = content.split(':');
+        if (parts.length >= 5) {
+          const port = Number(parts[2]);
+          const pass = parts[3];
+          const auth = Buffer.from(`riot:${pass}`).toString('base64');
+          await new Promise<void>((resolve) => {
+            const req = https.request(
+              {
+                hostname: '127.0.0.1',
+                port,
+                path: '/rso-auth/v1/session',
+                method: 'DELETE',
+                headers: { Authorization: `Basic ${auth}` },
+                rejectUnauthorized: false,
+                timeout: 2000,
+              },
+              () => resolve()
+            );
+            req.on('error', () => resolve());
+            req.on('timeout', () => {
+              req.destroy();
+              resolve();
+            });
+            req.end();
+          });
+        }
+      } catch {}
+    }
+
+    // 2. Kill all processes including "Riot Client.exe"
     const processesToKill = [
+      'Riot Client.exe',
       'RiotClientServices.exe',
+      'RiotClientCrashHandler.exe',
       'RiotClientUx.exe',
       'RiotClientUxRender.exe',
       'LeagueClient.exe',
@@ -63,13 +112,11 @@ export class LauncherService {
           killer.on('close', () => resolve());
           killer.on('error', () => resolve());
         });
-      } catch {
-        // ignore
-      }
+      } catch {}
     }
 
     // Allow OS file handles and sockets to release cleanly
-    await new Promise(res => setTimeout(res, 1000));
+    await new Promise((res) => setTimeout(res, 1200));
   }
 
   /**
@@ -89,7 +136,7 @@ export class LauncherService {
     }
 
     const accounts = this.storage.getAccounts();
-    const account = accounts.find(a => a.id === accountId);
+    const account = accounts.find((a) => a.id === accountId);
     if (!account) {
       throw new Error(`Account not found`);
     }
@@ -103,25 +150,47 @@ export class LauncherService {
     const clientPath = this.findRiotClientPath();
 
     if (!fs.existsSync(clientPath)) {
-      throw new Error(
-        `Riot Client was not found at: ${clientPath}\nPlease specify the correct path in Settings.`
-      );
-    }
-
-    if (settings.autoCloseClients) {
-      onStatus?.('Closing running Riot instances...');
-      await this.closeRunningClients();
+      throw new Error(`Riot Client was not found at: ${clientPath}\nPlease specify the correct path in Settings.`);
     }
 
     const productArg = game === 'valorant' ? 'valorant' : 'league_of_legends';
-    const launchArgs = [
-      `--launch-product=${productArg}`,
-      '--launch-patchline=live',
-    ];
 
-    onStatus?.(`Launching Riot Client for ${account.label} (${game.toUpperCase()})...`);
+    // 1. Check if the currently active Riot session already belongs to this account
+    let isAlreadyActive = false;
+    try {
+      const active = await this.riotApi.detectActiveSession();
+      if (active && active.riotId && account.riotId) {
+        if (active.riotId.toLowerCase() === account.riotId.toLowerCase()) {
+          isAlreadyActive = true;
+        }
+      }
+    } catch {}
 
-    // Spawn detached process without shell injection risk
+    if (isAlreadyActive) {
+      onStatus?.(`Already logged in as ${account.riotId || account.label}. Starting ${game.toUpperCase()}...`);
+      const child = spawn(clientPath, [`--launch-product=${productArg}`, '--launch-patchline=live'], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: false,
+      });
+      child.unref();
+
+      account.lastPlayed = new Date().toISOString();
+      this.storage.saveAccount(account);
+
+      return {
+        success: true,
+        message: `Launched ${game.toUpperCase()} with active account: ${account.riotId || account.label}`,
+      };
+    }
+
+    // 2. We need to switch accounts: log out previous session and terminate all instances
+    onStatus?.('Switching account: logging out previous session...');
+    await this.closeRunningClients();
+
+    onStatus?.(`Starting Riot Client for ${account.label} (${game.toUpperCase()})...`);
+    const launchArgs = [`--launch-product=${productArg}`, '--launch-patchline=live'];
+
     const child = spawn(clientPath, launchArgs, {
       detached: true,
       stdio: 'ignore',
@@ -129,13 +198,13 @@ export class LauncherService {
     });
     child.unref();
 
-    // Auto-login automation via secure STDIN (no credentials passed in process arguments!)
+    // Auto-login automation via secure STDIN
     if (process.platform === 'win32') {
-      const waitSeconds = Math.max(2, Math.min(15, settings.launchDelaySeconds || 4));
-      onStatus?.(`Waiting ${waitSeconds}s for login window...`);
-      await new Promise(r => setTimeout(r, waitSeconds * 1000));
+      const waitSeconds = Math.max(3, Math.min(15, settings.launchDelaySeconds || 4));
+      onStatus?.(`Waiting ${waitSeconds}s for Riot Client login screen...`);
+      await new Promise((r) => setTimeout(r, waitSeconds * 1000));
 
-      onStatus?.('Entering credentials securely...');
+      onStatus?.(`Entering credentials for ${account.username}...`);
       await this.injectCredentialsViaStdin(account.username, password);
 
       if (account.has2fa) {
@@ -151,7 +220,7 @@ export class LauncherService {
       success: true,
       message: account.has2fa
         ? `Credentials entered! Please approve the 2FA prompt in Riot Client.`
-        : `Launched ${game.toUpperCase()} with account: ${account.riotId || account.label}`,
+        : `Switched & launched ${game.toUpperCase()} with account: ${account.riotId || account.label}`,
     };
   }
 
@@ -175,60 +244,72 @@ $password = [Console]::In.ReadLine()
 
 if (-not $user -or -not $password) { exit 0 }
 
-# Find and activate Riot Client window
-$procs = Get-Process -Name "RiotClientUx", "RiotClientServices"
-if ($procs) {
+# Find and activate Riot Client window (retry up to 8 times)
+for ($i = 0; $i -lt 8; $i++) {
+    $activated = $false
     try {
-        [Microsoft.VisualBasic.Interaction]::AppActivate($procs[0].Id)
-    } catch {
         [Microsoft.VisualBasic.Interaction]::AppActivate("Riot Client")
-    }
-    Start-Sleep -Milliseconds 600
-
-    # Focus and clear current field (Ctrl+A, Backspace)
-    [System.Windows.Forms.SendKeys]::SendWait('^a{BACKSPACE}')
-    Start-Sleep -Milliseconds 150
-
-    # Type username character by character safely
-    foreach ($char in $user.ToCharArray()) {
-        $cStr = [string]$char
-        if ($cStr -match '[+^%~{}()\\[\\]]') {
-            [System.Windows.Forms.SendKeys]::SendWait("{$cStr}")
-        } else {
-            [System.Windows.Forms.SendKeys]::SendWait($cStr)
+        $activated = $true
+    } catch {
+        $procs = Get-Process | Where-Object { $_.ProcessName -match "Riot Client|RiotClient" }
+        if ($procs) {
+            foreach ($p in $procs) {
+                try {
+                    [Microsoft.VisualBasic.Interaction]::AppActivate($p.Id)
+                    $activated = $true
+                    break
+                } catch {}
+            }
         }
     }
-    Start-Sleep -Milliseconds 200
-
-    # Tab to password field
-    [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
-    Start-Sleep -Milliseconds 150
-
-    # Type password character by character safely
-    foreach ($char in $password.ToCharArray()) {
-        $cStr = [string]$char
-        if ($cStr -match '[+^%~{}()\\[\\]]') {
-            [System.Windows.Forms.SendKeys]::SendWait("{$cStr}")
-        } else {
-            [System.Windows.Forms.SendKeys]::SendWait($cStr)
-        }
-    }
-    Start-Sleep -Milliseconds 250
-
-    # Submit login
-    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+    if ($activated) { break }
+    Start-Sleep -Milliseconds 500
 }
+
+Start-Sleep -Milliseconds 600
+
+# Focus and clear current field (Ctrl+A, Backspace)
+[System.Windows.Forms.SendKeys]::SendWait('^a{BACKSPACE}')
+Start-Sleep -Milliseconds 150
+
+# Type username character by character safely
+foreach ($char in $user.ToCharArray()) {
+    $cStr = [string]$char
+    if ($cStr -match '[+^%~{}()\\[\\]]') {
+        [System.Windows.Forms.SendKeys]::SendWait("{$cStr}")
+    } else {
+        [System.Windows.Forms.SendKeys]::SendWait($cStr)
+    }
+}
+Start-Sleep -Milliseconds 250
+
+# Tab to password field
+[System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+Start-Sleep -Milliseconds 200
+
+# Type password character by character safely
+foreach ($char in $password.ToCharArray()) {
+    $cStr = [string]$char
+    if ($cStr -match '[+^%~{}()\\[\\]]') {
+        [System.Windows.Forms.SendKeys]::SendWait("{$cStr}")
+    } else {
+        [System.Windows.Forms.SendKeys]::SendWait($cStr)
+    }
+}
+Start-Sleep -Milliseconds 300
+
+# Submit login
+[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
 `;
 
-      const psProcess = spawn('powershell.exe', [
-        '-NoProfile',
-        '-NonInteractive',
-        '-ExecutionPolicy', 'Bypass',
-        '-Command', psScript
-      ], {
-        windowsHide: true,
-        stdio: ['pipe', 'ignore', 'ignore'],
-      });
+      const psProcess = spawn(
+        'powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', psScript],
+        {
+          windowsHide: true,
+          stdio: ['pipe', 'ignore', 'ignore'],
+        }
+      );
 
       // Write credentials into STDIN and immediately close stream
       psProcess.stdin.write(username + '\n');
@@ -240,9 +321,11 @@ if ($procs) {
 
       // Timeout safety guard
       setTimeout(() => {
-        try { psProcess.kill(); } catch {}
+        try {
+          psProcess.kill();
+        } catch {}
         resolve();
-      }, 7000);
+      }, 9000);
     });
   }
 }

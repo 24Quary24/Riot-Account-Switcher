@@ -12,8 +12,8 @@ let tray: Tray | null = null;
 let isQuitting = false;
 
 const storageService = new StorageService();
-const launcherService = new LauncherService(storageService);
 const riotApiService = new RiotApiService(storageService);
+const launcherService = new LauncherService(storageService, riotApiService);
 const pingService = new PingService();
 
 function createWindow() {
@@ -177,29 +177,37 @@ function setupIpcHandlers() {
     // Sanitize string inputs
     account.label = String(account.label || '').slice(0, 60);
     account.username = String(account.username || '').slice(0, 60);
-    // Auto-detect Riot ID & tagline if not manually entered
-    if (!account.riotId || account.riotId === account.label || !account.tagline) {
-      try {
-        const detected = await riotApiService.detectActiveSession();
-        if (detected && detected.riotId) {
-          account.riotId = detected.riotId;
-          account.tagline = detected.tagline;
-        }
-      } catch {}
+
+    // Keep user's custom Riot ID and tagline; never overwrite with other accounts
+    if (!account.riotId || account.riotId.trim() === '') {
+      account.riotId = account.label || account.username;
+    }
+    if (!account.tagline || account.tagline.trim() === '') {
+      const reg = (account.region || 'EUW').toUpperCase();
+      account.tagline = reg === 'EUW' ? 'EUW' : reg === 'EUNE' ? 'EUNE' : reg === 'NA' ? 'NA1' : reg;
     }
 
-    // Fetch real live stats from Riot Client (no fake ranks)
+    // Only sync stats if Riot Client is actively running and matches this account
     try {
-      const realStats = await riotApiService.fetchAccountStats(account);
-      if (realStats.valorantStats) account.valorantStats = realStats.valorantStats;
-      if (realStats.leagueStats) account.leagueStats = realStats.leagueStats;
-    } catch {
-      if (!account.valorantStats) account.valorantStats = riotApiService.getCleanDefaultValorantStats();
-      if (!account.leagueStats) account.leagueStats = riotApiService.getCleanDefaultLeagueStats();
-    }
+      const activeSession = await riotApiService.detectActiveSession();
+      if (
+        activeSession &&
+        activeSession.riotId &&
+        account.riotId &&
+        activeSession.riotId.toLowerCase() === account.riotId.toLowerCase()
+      ) {
+        const realStats = await riotApiService.fetchAccountStats(account);
+        if (realStats.valorantStats) account.valorantStats = realStats.valorantStats;
+        if (realStats.leagueStats) account.leagueStats = realStats.leagueStats;
+      }
+    } catch {}
+
+    if (!account.valorantStats) account.valorantStats = riotApiService.getCleanDefaultValorantStats();
+    if (!account.leagueStats) account.leagueStats = riotApiService.getCleanDefaultLeagueStats();
 
     storageService.saveAccount(account, password);
     updateTrayMenu();
+    return account;
   });
 
   ipcMain.handle('accounts:delete', async (_event, id: string) => {
