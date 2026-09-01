@@ -149,7 +149,12 @@ export const AccountCard: React.FC<AccountCardProps> = ({
                 <Flame size={16} />
               </div>
               <div className="rank-titles">
-                <span className="rank-game-label">VALORANT</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span className="rank-game-label">VALORANT</span>
+                  <span className="card-level-chip val">
+                    LVL {account.valorantStats?.accountLevel || account.valorantStats?.battlePassLevel || 1}
+                  </span>
+                </div>
                 <span className="rank-tier-name" style={{ color: getRankColor(account.valorantStats?.rank) }}>
                   {account.valorantStats?.rank || 'Unranked'}
                 </span>
@@ -171,7 +176,12 @@ export const AccountCard: React.FC<AccountCardProps> = ({
                 <Shield size={16} />
               </div>
               <div className="rank-titles">
-                <span className="rank-game-label">LEAGUE OF LEGENDS</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span className="rank-game-label">LEAGUE OF LEGENDS</span>
+                  <span className="card-level-chip lol">
+                    LVL {account.leagueStats?.summonerLevel || 1}
+                  </span>
+                </div>
                 <span className="rank-tier-name" style={{ color: getRankColor(account.leagueStats?.soloRank) }}>
                   {account.leagueStats?.soloRank || 'Unranked'}
                 </span>

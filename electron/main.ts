@@ -219,13 +219,29 @@ function setupIpcHandlers() {
 
   ipcMain.handle('riot:refresh-stats', async (_event, account: RiotAccount) => {
     if (!account || !account.id) throw new Error('Invalid account');
-    const stats = await riotApiService.fetchAccountStats(account);
     const accounts = storageService.getAccounts();
     const idx = accounts.findIndex(a => a.id === account.id);
+    const existing = idx >= 0 ? accounts[idx] : account;
+
+    const stats = await riotApiService.fetchAccountStats(existing);
     if (idx >= 0) {
-      if (stats.valorantStats) accounts[idx].valorantStats = stats.valorantStats;
-      if (stats.leagueStats) accounts[idx].leagueStats = stats.leagueStats;
+      if (stats.valorantStats) {
+        accounts[idx].valorantStats = {
+          ...(accounts[idx].valorantStats || {}),
+          ...stats.valorantStats,
+        };
+      }
+      if (stats.leagueStats) {
+        accounts[idx].leagueStats = {
+          ...(accounts[idx].leagueStats || {}),
+          ...stats.leagueStats,
+        };
+      }
       storageService.saveAccounts(accounts);
+      return {
+        valorantStats: accounts[idx].valorantStats,
+        leagueStats: accounts[idx].leagueStats,
+      };
     }
     return stats;
   });

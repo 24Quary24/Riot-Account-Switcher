@@ -307,6 +307,9 @@ h1, h2, h3, h4, .font-heading {
   align-items: center;
   justify-content: space-between;
   padding: 16px 28px;
+  position: relative;
+  z-index: 10;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
 .filter-pills {
@@ -333,7 +336,7 @@ h1, h2, h3, h4, .font-heading {
 }
 
 .pill-btn.active {
-  background: rgba(232, 64, 42, 0.15);
+  background: rgba(255, 70, 85, 0.15);
   border-color: var(--riot-red);
   color: #FFF;
 }
@@ -342,7 +345,7 @@ h1, h2, h3, h4, .font-heading {
 .content-viewport {
   flex: 1;
   overflow-y: auto;
-  padding: 0 28px 28px 28px;
+  padding: 12px 28px 28px 28px;
 }
 
 /* Account Cards Grid */
@@ -350,23 +353,46 @@ h1, h2, h3, h4, .font-heading {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
   gap: 20px;
+  padding-top: 8px;
+  padding-bottom: 16px;
 }
 
 .account-card {
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
-  overflow: hidden;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
   position: relative;
   display: flex;
   flex-direction: column;
 }
 
 .account-card:hover {
-  transform: translateY(-4px);
-  border-color: var(--border-focus);
-  box-shadow: var(--shadow-md);
+  border-color: #384152;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  z-index: 5;
+}
+
+.card-level-chip {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 2px;
+  letter-spacing: 0.04em;
+  display: inline-flex;
+  align-items: center;
+}
+
+.card-level-chip.val {
+  background: rgba(255, 70, 85, 0.15);
+  color: #FF707E;
+  border: 1px solid rgba(255, 70, 85, 0.35);
+}
+
+.card-level-chip.lol {
+  background: rgba(0, 245, 212, 0.12);
+  color: var(--riot-teal);
+  border: 1px solid rgba(0, 245, 212, 0.35);
 }
 
 .account-card.active-selected {

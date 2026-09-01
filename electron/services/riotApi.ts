@@ -173,26 +173,31 @@ export class RiotApiService {
     );
 
     if (!fs.existsSync(lockfilePath)) {
-      return undefined;
+      return account.valorantStats;
     }
 
     const content = fs.readFileSync(lockfilePath, 'utf-8');
     const parts = content.split(':');
-    if (parts.length < 5) return undefined;
+    if (parts.length < 5) return account.valorantStats;
 
     const port = Number(parts[2]);
     const pass = parts[3];
     const auth = Buffer.from(`riot:${pass}`).toString('base64');
 
     // 1. Get tokens from local client
-    const tokenData = await this.makeHttpsRequest<any>(
-      `https://127.0.0.1:${port}/entitlements/v1/token`,
-      { Authorization: `Basic ${auth}` },
-      true
-    );
+    let tokenData: any;
+    try {
+      tokenData = await this.makeHttpsRequest<any>(
+        `https://127.0.0.1:${port}/entitlements/v1/token`,
+        { Authorization: `Basic ${auth}` },
+        true
+      );
+    } catch {
+      return account.valorantStats;
+    }
 
     if (!tokenData || !tokenData.accessToken || !tokenData.subject) {
-      return undefined;
+      return account.valorantStats;
     }
 
     const puuid = tokenData.subject;
@@ -216,8 +221,8 @@ export class RiotApiService {
       'X-Riot-ClientPlatform': clientPlatform,
     };
 
-    // 2. Fetch Account XP & Level
-    let accountLevel = 1;
+    // 2. Fetch Account XP & Level (preserving existing if network error)
+    let accountLevel = account.valorantStats?.accountLevel || account.valorantStats?.battlePassLevel || 1;
     try {
       const xpData = await this.makeHttpsRequest<any>(
         `https://pd.${valRegion}.a.pvp.net/account-xp/v1/players/${puuid}`,
@@ -228,10 +233,10 @@ export class RiotApiService {
       }
     } catch {}
 
-    // 3. Fetch Real MMR & Rank Rating
-    let rank = 'Unranked';
-    let rr = 0;
-    let peakRank = 'Unranked';
+    // 3. Fetch Real MMR & Rank Rating (preserving existing if network error)
+    let rank = account.valorantStats?.rank || 'Unranked';
+    let rr = account.valorantStats?.rankRating || 0;
+    let peakRank = account.valorantStats?.peakRank || 'Unranked';
 
     try {
       const mmrData = await this.makeHttpsRequest<any>(
@@ -255,24 +260,30 @@ export class RiotApiService {
     } catch {}
 
     // 4. Fetch Real Wallet Balances (VP, Radianite, Kingdom Credits)
-    let vp = 0;
-    let radianite = 0;
-    let kc = 0;
+    let vp = account.valorantStats?.vpBalance ?? 0;
+    let radianite = account.valorantStats?.radianiteBalance ?? 0;
+    let kc = account.valorantStats?.kcBalance ?? 0;
     try {
       const walletData = await this.makeHttpsRequest<any>(
         `https://pd.${valRegion}.a.pvp.net/store/v1/wallet/${puuid}`,
         headers
       );
       if (walletData && walletData.Balances) {
-        vp = walletData.Balances['85ad13f7-3d1b-5128-9eb2-7cd8ee0b5741'] || 0;
-        radianite = walletData.Balances['e59aa87c-4cbf-517a-5983-6e81511be9b7'] || 0;
-        kc = walletData.Balances['85ca954a-41f2-ce94-9b45-8ca3dd39a00d'] || 0;
+        if (typeof walletData.Balances['85ad13f7-3d1b-5128-9eb2-7cd8ee0b5741'] === 'number') {
+          vp = walletData.Balances['85ad13f7-3d1b-5128-9eb2-7cd8ee0b5741'];
+        }
+        if (typeof walletData.Balances['e59aa87c-4cbf-517a-5983-6e81511be9b7'] === 'number') {
+          radianite = walletData.Balances['e59aa87c-4cbf-517a-5983-6e81511be9b7'];
+        }
+        if (typeof walletData.Balances['85ca954a-41f2-ce94-9b45-8ca3dd39a00d'] === 'number') {
+          kc = walletData.Balances['85ca954a-41f2-ce94-9b45-8ca3dd39a00d'];
+        }
       }
     } catch {}
 
     // 5. Fetch Entitlements for Skins & Agents count
-    let skinsCount = 0;
-    let agentsCount = 5; // Default starter agents
+    let skinsCount = account.valorantStats?.skinsOwned ?? 0;
+    let agentsCount = account.valorantStats?.agentsUnlocked ?? 5; // Default starter agents
     try {
       const skinsData = await this.makeHttpsRequest<any>(
         `https://pd.${valRegion}.a.pvp.net/store/v1/entitlements/${puuid}/e7c633d7-fb7e-4629-b690-379daeb26863`,
