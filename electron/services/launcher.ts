@@ -289,65 +289,42 @@ for ($i = 0; $i -lt 24; $i++) {
 
 if ($hwnd -eq [IntPtr]::Zero) { exit 1 }
 
-# --- Force window to foreground using Win32 (not AppActivate) ---
-function Force-Focus {
-    param([IntPtr]$h)
-    [Win32Focus]::ShowWindow($h, 9) | Out-Null   # SW_RESTORE
-    Start-Sleep -Milliseconds 150
-    [Win32Focus]::BringWindowToTop($h) | Out-Null
-    [Win32Focus]::SetForegroundWindow($h) | Out-Null
-    Start-Sleep -Milliseconds 300
-    # Verify - retry once if focus was stolen
-    if ([Win32Focus]::GetForegroundWindow() -ne $h) {
-        [Win32Focus]::SetForegroundWindow($h) | Out-Null
-        Start-Sleep -Milliseconds 300
-    }
-}
-
-Force-Focus $hwnd
+# --- Bring window to foreground ---
+[Win32Focus]::ShowWindow($hwnd, 9) | Out-Null
+[Win32Focus]::BringWindowToTop($hwnd) | Out-Null
+[Win32Focus]::SetForegroundWindow($hwnd) | Out-Null
 
 # --- Wait for login form to mount ---
-Start-Sleep -Milliseconds 2000
+Start-Sleep -Milliseconds 800
 
-# Re-grab focus right before typing (in case something stole it during the wait)
-Force-Focus $hwnd
-Start-Sleep -Milliseconds 400
-
-# --- Clear and type username ---
+# Clear and type username
 [System.Windows.Forms.SendKeys]::SendWait('^a{BACKSPACE}')
-Start-Sleep -Milliseconds 300
+Start-Sleep -Milliseconds 150
 
 foreach ($char in $user.ToCharArray()) {
-    # Re-verify Riot Client still has focus every 5 characters
-    if ([Win32Focus]::GetForegroundWindow() -ne $hwnd) { Force-Focus $hwnd; Start-Sleep -Milliseconds 200 }
     $c = [string]$char
     if ($c -match '[+^%~{}()\[\]]') { [System.Windows.Forms.SendKeys]::SendWait("{$c}") }
     else { [System.Windows.Forms.SendKeys]::SendWait($c) }
-    Start-Sleep -Milliseconds 45
+    Start-Sleep -Milliseconds 25
 }
 
-Start-Sleep -Milliseconds 400
-
-# --- Re-grab focus, then Tab to password field ---
-Force-Focus $hwnd
-Start-Sleep -Milliseconds 200
-[System.Windows.Forms.SendKeys]::SendWait('{TAB}')
-Start-Sleep -Milliseconds 400
-[System.Windows.Forms.SendKeys]::SendWait('^a{BACKSPACE}')
-Start-Sleep -Milliseconds 200
-
-# --- Type password ---
-foreach ($char in $password.ToCharArray()) {
-    if ([Win32Focus]::GetForegroundWindow() -ne $hwnd) { Force-Focus $hwnd; Start-Sleep -Milliseconds 200 }
-    $c = [string]$char
-    if ($c -match '[+^%~{}()\[\]]') { [System.Windows.Forms.SendKeys]::SendWait("{$c}") }
-    else { [System.Windows.Forms.SendKeys]::SendWait($c) }
-    Start-Sleep -Milliseconds 45
-}
-
-Start-Sleep -Milliseconds 450
-Force-Focus $hwnd
 Start-Sleep -Milliseconds 150
+
+# Tab to password field and clear
+[System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+Start-Sleep -Milliseconds 200
+[System.Windows.Forms.SendKeys]::SendWait('^a{BACKSPACE}')
+Start-Sleep -Milliseconds 100
+
+# Type password
+foreach ($char in $password.ToCharArray()) {
+    $c = [string]$char
+    if ($c -match '[+^%~{}()\[\]]') { [System.Windows.Forms.SendKeys]::SendWait("{$c}") }
+    else { [System.Windows.Forms.SendKeys]::SendWait($c) }
+    Start-Sleep -Milliseconds 25
+}
+
+Start-Sleep -Milliseconds 200
 [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
 `;
 
@@ -361,12 +338,11 @@ Start-Sleep -Milliseconds 150
       ps.stdin.end();
       ps.on('close', () => resolve());
       ps.on('error', () => resolve());
-      // Timeout: 12s wait + ~8s for typing a long password
-      setTimeout(() => { try { ps.kill(); } catch {} resolve(); }, 22000);
+      // Timeout: 12s wait + fast typing
+      setTimeout(() => { try { ps.kill(); } catch {} resolve(); }, 15000);
     });
   }
 
-  /**
   /**
    * Click the Play button in Riot Client using a real mouse click.
    * The Play button is not keyboard-focusable — Enter only works when hovered.
