@@ -84,6 +84,7 @@ export interface RiotAccount {
   lastPlayed?: string;
   valorantStats?: ValorantStats;
   leagueStats?: LeagueStats;
+  hasSavedSession?: boolean;
 }
 
 export interface AppSettings {

@@ -42,50 +42,53 @@ export class LauncherService {
 
   /**
    * Gracefully terminate running Riot and League/Valorant processes safely.
-   * Also deletes active session on Riot Client so it resets to the login screen.
+   * If wipeSession is true, also deletes active session on Riot Client so it resets to the login screen.
+   * If wipeSession is false, preserves session tokens for instant silent switching.
    */
-  public async closeRunningClients(): Promise<void> {
+  public async closeRunningClients(wipeSession: boolean = false): Promise<void> {
     if (process.platform !== 'win32') return;
 
-    // 1. If Riot Client is active, call DELETE /rso-auth/v1/session to log out cleanly
-    const lockfilePath = path.join(
-      process.env.LOCALAPPDATA || '',
-      'Riot Games',
-      'Riot Client',
-      'Config',
-      'lockfile'
-    );
+    // 1. If wipeSession is requested, call DELETE /rso-auth/v1/session to log out cleanly
+    if (wipeSession) {
+      const lockfilePath = path.join(
+        process.env.LOCALAPPDATA || '',
+        'Riot Games',
+        'Riot Client',
+        'Config',
+        'lockfile'
+      );
 
-    if (fs.existsSync(lockfilePath)) {
-      try {
-        const content = fs.readFileSync(lockfilePath, 'utf-8');
-        const parts = content.split(':');
-        if (parts.length >= 5) {
-          const port = Number(parts[2]);
-          const pass = parts[3];
-          const auth = Buffer.from(`riot:${pass}`).toString('base64');
-          await new Promise<void>((resolve) => {
-            const req = https.request(
-              {
-                hostname: '127.0.0.1',
-                port,
-                path: '/rso-auth/v1/session',
-                method: 'DELETE',
-                headers: { Authorization: `Basic ${auth}` },
-                rejectUnauthorized: false,
-                timeout: 2000,
-              },
-              () => resolve()
-            );
-            req.on('error', () => resolve());
-            req.on('timeout', () => {
-              req.destroy();
-              resolve();
+      if (fs.existsSync(lockfilePath)) {
+        try {
+          const content = fs.readFileSync(lockfilePath, 'utf-8');
+          const parts = content.split(':');
+          if (parts.length >= 5) {
+            const port = Number(parts[2]);
+            const pass = parts[3];
+            const auth = Buffer.from(`riot:${pass}`).toString('base64');
+            await new Promise<void>((resolve) => {
+              const req = https.request(
+                {
+                  hostname: '127.0.0.1',
+                  port,
+                  path: '/rso-auth/v1/session',
+                  method: 'DELETE',
+                  headers: { Authorization: `Basic ${auth}` },
+                  rejectUnauthorized: false,
+                  timeout: 2000,
+                },
+                () => resolve()
+              );
+              req.on('error', () => resolve());
+              req.on('timeout', () => {
+                req.destroy();
+                resolve();
+              });
+              req.end();
             });
-            req.end();
-          });
-        }
-      } catch {}
+          }
+        } catch {}
+      }
     }
 
     // 2. Kill all processes including "Riot Client.exe"
@@ -121,6 +124,7 @@ export class LauncherService {
 
   /**
    * Launch Riot Client and auto-fill credentials securely into login prompt.
+   * Supports 100% silent session switching when a saved session exists.
    */
   public async launchAccount(
     accountId: string,
@@ -156,11 +160,19 @@ export class LauncherService {
     const productArg = game === 'valorant' ? 'valorant' : 'league_of_legends';
 
     // 1. Check if the currently active Riot session already belongs to this account.
-    //    Compare by username (most reliable) AND riotId as fallback.
     let isAlreadyActive = false;
     try {
       const active = await this.riotApi.detectActiveSession();
       if (active) {
+        // Snapshot whichever account is currently active so its session is preserved
+        const activeAccount = accounts.find((a) =>
+          (a.riotId && active.riotId && a.riotId.toLowerCase() === active.riotId.toLowerCase()) ||
+          (a.username && active.username && a.username.toLowerCase() === active.username.toLowerCase())
+        );
+        if (activeAccount) {
+          this.storage.saveAccountSession(activeAccount.id);
+        }
+
         const sameByRiotId = active.riotId && account.riotId &&
           active.riotId.toLowerCase() === account.riotId.toLowerCase();
         const sameByUsername = active.username &&
@@ -172,7 +184,8 @@ export class LauncherService {
     } catch {}
 
     if (isAlreadyActive) {
-      // Already logged in as this account — just launch the game
+      // Already logged in as this account — snapshot session and launch game directly
+      this.storage.saveAccountSession(account.id);
       onStatus?.(`Already signed in as ${account.riotId || account.label}. Launching ${game.toUpperCase()}...`);
       const child = spawn(clientPath, [`--launch-product=${productArg}`, '--launch-patchline=live'], {
         detached: true,
@@ -181,7 +194,6 @@ export class LauncherService {
       });
       child.unref();
 
-      // Wait for the client to settle, then click the Play button
       if (process.platform === 'win32') {
         const waitSeconds = Math.max(4, Math.min(12, settings.launchDelaySeconds || 5));
         onStatus?.(`Waiting ${waitSeconds}s for client to load, then clicking Play...`);
@@ -198,9 +210,44 @@ export class LauncherService {
       };
     }
 
-    // 2. We need to switch accounts: log out previous session and terminate all instances
-    onStatus?.('Switching accounts: logging out previous session...');
-    await this.closeRunningClients();
+    // 2. SILENT SWITCH: If target account has a saved session, restore it silently (no keyboard/mouse needed)
+    if (this.storage.hasSavedSession(account.id)) {
+      onStatus?.(`Silently switching to ${account.riotId || account.label} (no keyboard/mouse needed)...`);
+
+      // Terminate running clients WITHOUT wiping the session
+      await this.closeRunningClients(false);
+
+      // Restore target account's saved session
+      const restored = this.storage.restoreAccountSession(account.id);
+      if (restored) {
+        onStatus?.(`Launching ${game.toUpperCase()} directly...`);
+        const child = spawn(clientPath, [`--launch-product=${productArg}`, '--launch-patchline=live'], {
+          detached: true,
+          stdio: 'ignore',
+          windowsHide: false,
+        });
+        child.unref();
+
+        if (process.platform === 'win32') {
+          const waitSeconds = Math.max(4, Math.min(12, settings.launchDelaySeconds || 5));
+          onStatus?.(`Client loading in background (${waitSeconds}s)...`);
+          await new Promise((r) => setTimeout(r, waitSeconds * 1000));
+          await this.clickPlayButton(game);
+        }
+
+        account.lastPlayed = new Date().toISOString();
+        this.storage.saveAccount(account);
+
+        return {
+          success: true,
+          message: `Silently switched to ${account.riotId || account.label} and launched ${game.toUpperCase()}!`,
+        };
+      }
+    }
+
+    // 3. FIRST-TIME LOGIN: No saved session yet — login once via fast automation and capture session
+    onStatus?.(`Initial login for ${account.label}: logging in and saving session for future silent switches...`);
+    await this.closeRunningClients(true);
 
     onStatus?.(`Opening Riot Client for ${account.label} (${game.toUpperCase()})...`);
     const launchArgs = [`--launch-product=${productArg}`, '--launch-patchline=live'];
@@ -222,11 +269,17 @@ export class LauncherService {
       await this.injectCredentialsViaStdin(account.username, password);
 
       if (account.has2fa) {
-        onStatus?.('2FA Protected: Credentials entered — complete your verification code in Riot Client.');
+        onStatus?.('2FA Protected: Complete verification in Riot Client (session will be saved once logged in).');
       } else {
-        // Wait for login to complete + Riot Client home screen to load, then click Play
         onStatus?.('Login submitted. Waiting for home screen to load...');
         await new Promise((r) => setTimeout(r, 8000));
+
+        // Automatically capture and save the session so all future launches are 100% silent!
+        const saved = this.storage.saveAccountSession(account.id);
+        if (saved) {
+          onStatus?.('Silent session saved! Future switches to this account will be 100% silent.');
+        }
+
         onStatus?.('Clicking Play button...');
         await this.clickPlayButton(game);
       }
@@ -240,7 +293,7 @@ export class LauncherService {
       success: true,
       message: account.has2fa
         ? `Credentials entered — complete 2FA in Riot Client.`
-        : `Switched to ${account.riotId || account.label} and launched ${game.toUpperCase()}.`,
+        : `Switched to ${account.riotId || account.label} and launched ${game.toUpperCase()}. Session saved for future silent launches!`,
     };
   }
 
@@ -324,7 +377,14 @@ foreach ($char in $password.ToCharArray()) {
     Start-Sleep -Milliseconds 25
 }
 
-Start-Sleep -Milliseconds 200
+# Ensure 'Stay signed in' checkbox is selected for persistent session capture
+Start-Sleep -Milliseconds 150
+[System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+Start-Sleep -Milliseconds 150
+[System.Windows.Forms.SendKeys]::SendWait(' ')
+Start-Sleep -Milliseconds 150
+[System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+Start-Sleep -Milliseconds 150
 [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
 `;
 

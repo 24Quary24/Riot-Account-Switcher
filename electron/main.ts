@@ -294,7 +294,23 @@ function setupIpcHandlers() {
   });
 
   ipcMain.handle('riot:detect-current-session', async () => {
-    return riotApiService.detectActiveSession();
+    const session = await riotApiService.detectActiveSession();
+    if (session) {
+      const accounts = storageService.getAccounts();
+      const match = accounts.find(a =>
+        (a.riotId && session.riotId && a.riotId.toLowerCase() === session.riotId.toLowerCase()) ||
+        (a.username && session.username && a.username.toLowerCase() === session.username.toLowerCase())
+      );
+      if (match) {
+        storageService.saveAccountSession(match.id);
+      }
+    }
+    return session;
+  });
+
+  ipcMain.handle('session:capture', async (_event, accountId: string) => {
+    if (typeof accountId !== 'string' || !accountId) return false;
+    return storageService.saveAccountSession(accountId);
   });
 
   ipcMain.handle('settings:get', () => {
@@ -372,6 +388,23 @@ app.whenReady().then(() => {
     mainWindow?.show();
     mainWindow?.focus();
   });
+
+  // Background active session auto-snapshot every 15 seconds
+  setInterval(async () => {
+    try {
+      const active = await riotApiService.detectActiveSession();
+      if (active) {
+        const accounts = storageService.getAccounts();
+        const match = accounts.find((a) =>
+          (a.riotId && active.riotId && a.riotId.toLowerCase() === active.riotId.toLowerCase()) ||
+          (a.username && active.username && a.username.toLowerCase() === active.username.toLowerCase())
+        );
+        if (match) {
+          storageService.saveAccountSession(match.id);
+        }
+      }
+    } catch {}
+  }, 15000);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

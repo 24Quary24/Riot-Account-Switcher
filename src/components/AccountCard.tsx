@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, ShieldCheck, MoreVertical, Edit2, Trash2, Copy, Check, Gamepad2 } from 'lucide-react';
+import { Play, ShieldCheck, MoreVertical, Edit2, Trash2, Copy, Check, Gamepad2, Zap } from 'lucide-react';
 import { RiotAccount } from '../types';
 
 interface AccountCardProps {
@@ -62,6 +62,15 @@ export const AccountCard: React.FC<AccountCardProps> = ({
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', position: 'relative' }}>
+          {account.hasSavedSession && (
+            <span
+              className="stat-chip accent-gold"
+              style={{ padding: '2px 6px', fontSize: '10px', gap: '3px', color: '#f59e0b' }}
+              title="Silent Instant Switch (No keyboard or mouse interaction needed)"
+            >
+              <Zap size={11} /> Silent
+            </span>
+          )}
           {account.has2fa && (
             <span
               className="stat-chip accent-teal"
@@ -110,6 +119,20 @@ export const AccountCard: React.FC<AccountCardProps> = ({
                 }}
               >
                 <Edit2 size={13} /> Edit Account
+              </button>
+              <button
+                className="btn btn-secondary btn-sm"
+                style={{ width: '100%', justifyContent: 'flex-start', border: 'none', background: 'transparent' }}
+                onClick={async () => {
+                  setShowMenu(false);
+                  const ok = await (window as any).riotManagerApi?.captureSession(account.id);
+                  if (ok) {
+                    account.hasSavedSession = true;
+                  }
+                }}
+                title="Save current Riot Client session for silent switching"
+              >
+                <Zap size={13} /> Save Session
               </button>
               <button
                 className="btn btn-secondary btn-sm"

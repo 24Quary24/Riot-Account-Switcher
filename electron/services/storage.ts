@@ -125,14 +125,20 @@ export class StorageService {
     if (!fs.existsSync(this.accountsFile)) return [];
     try {
       const raw = fs.readFileSync(this.accountsFile, 'utf-8');
-      return JSON.parse(raw);
+      const accounts: RiotAccount[] = JSON.parse(raw);
+      return accounts.map(a => ({
+        ...a,
+        hasSavedSession: this.hasSavedSession(a.id),
+      }));
     } catch {
       return [];
     }
   }
 
   public saveAccounts(accounts: RiotAccount[]): void {
-    fs.writeFileSync(this.accountsFile, JSON.stringify(accounts, null, 2), 'utf-8');
+    // Strip ephemeral hasSavedSession before saving to accounts.json
+    const cleaned = accounts.map(({ hasSavedSession, ...rest }) => rest);
+    fs.writeFileSync(this.accountsFile, JSON.stringify(cleaned, null, 2), 'utf-8');
   }
 
   public saveAccount(account: RiotAccount, password?: string): void {
@@ -158,6 +164,97 @@ export class StorageService {
     }
     const filtered = accounts.filter(a => a.id !== id);
     this.saveAccounts(filtered);
+    this.deleteAccountSession(id);
+  }
+
+  // --- Session Management (Silent Login) ---
+  public getSessionDir(accountId: string): string {
+    const sessionDir = path.join(this.userDataDir, 'sessions', accountId);
+    if (!fs.existsSync(sessionDir)) {
+      fs.mkdirSync(sessionDir, { recursive: true });
+    }
+    return sessionDir;
+  }
+
+  public hasSavedSession(accountId: string): boolean {
+    const sessionDir = path.join(this.userDataDir, 'sessions', accountId);
+    const yamlPath = path.join(sessionDir, 'RiotGamesPrivateSettings.yaml');
+    if (!fs.existsSync(yamlPath)) return false;
+    try {
+      const content = fs.readFileSync(yamlPath, 'utf-8');
+      return content.includes('riot-login:') && !content.includes('persist: null') && content.length > 200;
+    } catch {
+      return false;
+    }
+  }
+
+  public saveAccountSession(accountId: string): boolean {
+    try {
+      const riotDataDir = path.join(process.env.LOCALAPPDATA || '', 'Riot Games', 'Riot Client', 'Data');
+      const yamlPath = path.join(riotDataDir, 'RiotGamesPrivateSettings.yaml');
+      if (!fs.existsSync(yamlPath)) return false;
+
+      const content = fs.readFileSync(yamlPath, 'utf-8');
+      if (!content.includes('riot-login:') || content.includes('persist: null')) {
+        return false;
+      }
+
+      const sessionDir = this.getSessionDir(accountId);
+      fs.copyFileSync(yamlPath, path.join(sessionDir, 'RiotGamesPrivateSettings.yaml'));
+
+      const sessionsSrc = path.join(riotDataDir, 'Sessions');
+      const sessionsDest = path.join(sessionDir, 'Sessions');
+      if (fs.existsSync(sessionsSrc)) {
+        if (fs.existsSync(sessionsDest)) {
+          fs.rmSync(sessionsDest, { recursive: true, force: true });
+        }
+        fs.cpSync(sessionsSrc, sessionsDest, { recursive: true });
+      }
+
+      return true;
+    } catch (err) {
+      console.error(`Failed to save session for ${accountId}:`, err);
+      return false;
+    }
+  }
+
+  public restoreAccountSession(accountId: string): boolean {
+    try {
+      if (!this.hasSavedSession(accountId)) return false;
+
+      const sessionDir = path.join(this.userDataDir, 'sessions', accountId);
+      const riotDataDir = path.join(process.env.LOCALAPPDATA || '', 'Riot Games', 'Riot Client', 'Data');
+      if (!fs.existsSync(riotDataDir)) {
+        fs.mkdirSync(riotDataDir, { recursive: true });
+      }
+
+      const yamlSrc = path.join(sessionDir, 'RiotGamesPrivateSettings.yaml');
+      const yamlDest = path.join(riotDataDir, 'RiotGamesPrivateSettings.yaml');
+      fs.copyFileSync(yamlSrc, yamlDest);
+
+      const sessionsSrc = path.join(sessionDir, 'Sessions');
+      const sessionsDest = path.join(riotDataDir, 'Sessions');
+      if (fs.existsSync(sessionsSrc)) {
+        if (fs.existsSync(sessionsDest)) {
+          fs.rmSync(sessionsDest, { recursive: true, force: true });
+        }
+        fs.cpSync(sessionsSrc, sessionsDest, { recursive: true });
+      }
+
+      return true;
+    } catch (err) {
+      console.error(`Failed to restore session for ${accountId}:`, err);
+      return false;
+    }
+  }
+
+  public deleteAccountSession(accountId: string): void {
+    try {
+      const sessionDir = path.join(this.userDataDir, 'sessions', accountId);
+      if (fs.existsSync(sessionDir)) {
+        fs.rmSync(sessionDir, { recursive: true, force: true });
+      }
+    } catch {}
   }
 
   // --- Settings ---

@@ -17,6 +17,7 @@ export interface RiotManagerApi {
   maximizeWindow: () => void;
   closeWindow: () => void;
   detectActiveSession: () => Promise<{ riotId: string; tagline: string; puuid: string; region?: Region } | null>;
+  captureSession: (accountId: string) => Promise<boolean>;
   onLaunchStatus: (callback: (status: string) => void) => () => void;
 }
 
@@ -27,6 +28,7 @@ const api: RiotManagerApi = {
   launchAccount: (accountId, game) => ipcRenderer.invoke('launcher:launch', accountId, game),
   refreshAccountStats: (account) => ipcRenderer.invoke('riot:refresh-stats', account),
   detectActiveSession: () => ipcRenderer.invoke('riot:detect-current-session'),
+  captureSession: (accountId) => ipcRenderer.invoke('session:capture', accountId),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
   selectRiotClientPath: () => ipcRenderer.invoke('settings:select-path'),
