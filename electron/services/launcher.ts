@@ -317,11 +317,6 @@ public class RiotInputGuard {
 
     public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
-    [DllImport("user32.dll")] public static extern IntPtr OpenWindowStation(string a, bool b, uint c);
-    [DllImport("user32.dll")] public static extern bool SetProcessWindowStation(IntPtr h);
-    [DllImport("user32.dll")] public static extern IntPtr OpenDesktop(string lpszDesktop, uint dwFlags, bool fInherit, uint dwDesiredAccess);
-    [DllImport("user32.dll")] public static extern bool SetThreadDesktop(IntPtr hDesktop);
-
     [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
@@ -339,18 +334,9 @@ public class RiotInputGuard {
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
     [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, int dx, int dy, uint dwData, IntPtr dwExtraInfo);
 
-    public static void AttachDesktop() {
-        try {
-            IntPtr hwinsta = OpenWindowStation("WinSta0", false, 0x037F);
-            if (hwinsta != IntPtr.Zero) SetProcessWindowStation(hwinsta);
-            IntPtr hdesk = OpenDesktop("default", 0, false, 0x01FF);
-            if (hdesk != IntPtr.Zero) SetThreadDesktop(hdesk);
-        } catch {}
-    }
-
     public static IntPtr FindRiotWindow() {
-        AttachDesktop();
         IntPtr found = IntPtr.Zero;
+        uint curPid = (uint)Process.GetCurrentProcess().Id;
         EnumWindows((hWnd, lParam) => {
             if (!IsWindowVisible(hWnd)) return true;
             RECT r;
@@ -361,14 +347,29 @@ public class RiotInputGuard {
 
             uint pid;
             GetWindowThreadProcessId(hWnd, out pid);
+            if (pid == curPid) return true;
+
             try {
                 Process p = Process.GetProcessById((int)pid);
                 string name = p.ProcessName.ToLower();
+
+                // Explicitly ignore our own switcher, manager, or electron wrapper
+                if (name.Contains("switcher") || name.Contains("manager") || name.Contains("electron")) {
+                    return true;
+                }
+
                 var sb = new StringBuilder(256);
                 GetWindowText(hWnd, sb, 256);
                 string title = sb.ToString().ToLower();
 
-                if (name.Contains("riot") || name.Contains("leagueclient") || name.Contains("valorant") || title.Contains("riot client")) {
+                var cb = new StringBuilder(256);
+                GetClassName(hWnd, cb, 256);
+                string cls = cb.ToString();
+
+                bool isRiotProc = name == "riot client" || name == "riotclientservices" || name.StartsWith("riotclient");
+                bool isRiotTitle = title.Contains("riot client");
+
+                if ((isRiotProc || isRiotTitle) && cls == "Chrome_WidgetWin_1") {
                     found = hWnd;
                     return false;
                 }
@@ -380,7 +381,6 @@ public class RiotInputGuard {
 
     public static bool ActivateWindowSafely(IntPtr targetHwnd) {
         if (targetHwnd == IntPtr.Zero) return false;
-        AttachDesktop();
         IntPtr fgHwnd = GetForegroundWindow();
         if (fgHwnd == targetHwnd) return true;
 
@@ -400,19 +400,19 @@ public class RiotInputGuard {
         if (fgThread != 0 && fgThread != curThread) AttachThreadInput(curThread, fgThread, false);
         if (targetThread != 0 && targetThread != curThread) AttachThreadInput(curThread, targetThread, false);
 
-        Thread.Sleep(150);
+        Thread.Sleep(200);
         return ok;
     }
 
     public static bool IsForegroundRiot() {
-        AttachDesktop();
         IntPtr fg = GetForegroundWindow();
         if (fg == IntPtr.Zero) return false;
         uint pid;
         GetWindowThreadProcessId(fg, out pid);
         try {
             string name = Process.GetProcessById((int)pid).ProcessName.ToLower();
-            if (name.Contains("riot") || name.Contains("leagueclient") || name.Contains("valorant")) return true;
+            if (name.Contains("switcher") || name.Contains("manager") || name.Contains("electron")) return false;
+            if (name == "riot client" || name.StartsWith("riotclient")) return true;
             var sb = new StringBuilder(256);
             GetWindowText(fg, sb, 256);
             return sb.ToString().ToLower().Contains("riot client");
@@ -428,8 +428,33 @@ public class RiotInputGuard {
         int h = r.Bottom - r.Top;
         if (w < 350 || h < 250) return;
 
-        int targetX = r.Left + (int)(w * 0.18);
-        int targetY = r.Top + (int)(h * 0.38);
+        // In Riot Client, the login sidebar is 400px wide docked on the left.
+        // Username input field center is reliably at X = r.Left + 200, Y = r.Top + 245.
+        // This is safely positioned above password (315) and well away from social buttons (>= 390).
+        int targetX = r.Left + 200;
+        int targetY = r.Top + 245;
+
+        POINT orig;
+        GetCursorPos(out orig);
+        SetCursorPos(targetX, targetY);
+        Thread.Sleep(50);
+        mouse_event(0x0002, 0, 0, 0, IntPtr.Zero); // LEFTDOWN
+        Thread.Sleep(40);
+        mouse_event(0x0004, 0, 0, 0, IntPtr.Zero); // LEFTUP
+        Thread.Sleep(50);
+        SetCursorPos(orig.X, orig.Y);
+    }
+
+    public static void FocusPasswordField(IntPtr hWnd) {
+        RECT r;
+        GetWindowRect(hWnd, out r);
+        int w = r.Right - r.Left;
+        int h = r.Bottom - r.Top;
+        if (w < 350 || h < 250) return;
+
+        // In Riot Client, the password input field is directly below username at Y = r.Top + 315.
+        int targetX = r.Left + 200;
+        int targetY = r.Top + 315;
 
         POINT orig;
         GetCursorPos(out orig);
@@ -444,9 +469,12 @@ public class RiotInputGuard {
 }
 "@
 
-$user = [Console]::In.ReadLine()
-$password = [Console]::In.ReadLine()
-if (-not $user -or -not $password) { exit 1 }
+$userB64 = [Console]::In.ReadLine()
+$passB64 = [Console]::In.ReadLine()
+if (-not $userB64 -or -not $passB64) { exit 1 }
+
+$user = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($userB64))
+$password = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($passB64))
 
 # --- 1. Find Riot Client window ---
 $hwnd = [IntPtr]::Zero
@@ -463,7 +491,7 @@ if ($hwnd -eq [IntPtr]::Zero) {
 
 # --- 2. Activate Riot Client window safely ---
 [RiotInputGuard]::ActivateWindowSafely($hwnd) | Out-Null
-Start-Sleep -Milliseconds 400
+Start-Sleep -Milliseconds 300
 
 # --- 3. STRICT SAFETY GATE: Ensure foreground window is 100% Riot Client ---
 $isRiot = [RiotInputGuard]::IsForegroundRiot()
@@ -478,69 +506,60 @@ if (-not $isRiot) {
     exit 3
 }
 
-function Send-TextSafe($str) {
-    foreach ($char in $str.ToCharArray()) {
-        if (-not [RiotInputGuard]::IsForegroundRiot()) { exit 4 }
-        $c = [string]$char
-        if ($c -match '[+^%~{}()\[\]]') { [System.Windows.Forms.SendKeys]::SendWait("{$c}") }
-        else { [System.Windows.Forms.SendKeys]::SendWait($c) }
-        Start-Sleep -Milliseconds 25
-    }
-}
-
-# --- 4. Focus Username Field & Input ---
+# --- 4. Focus Username Field & Input via Safe Clipboard Paste ---
 [RiotInputGuard]::FocusUsernameField($hwnd)
-Start-Sleep -Milliseconds 250
-[System.Windows.Forms.SendKeys]::SendWait('^a{BACKSPACE}')
-Start-Sleep -Milliseconds 150
-Send-TextSafe $user
 Start-Sleep -Milliseconds 200
-
-# --- 5. INPUT VERIFICATION: Ensure username was entered and matches ---
-[System.Windows.Forms.Clipboard]::Clear()
-[System.Windows.Forms.SendKeys]::SendWait('^a^c')
-Start-Sleep -Milliseconds 200
-$copied = [System.Windows.Forms.Clipboard]::GetText()
-
-# If nothing was copied or text mismatch, retry focus + typing
-$retries = 0
-while ((-not $copied -or $copied.Trim() -ne $user.Trim()) -and $retries -lt 2) {
-    $retries++
-    Start-Sleep -Milliseconds 300
-    [RiotInputGuard]::ActivateWindowSafely($hwnd) | Out-Null
-    [RiotInputGuard]::FocusUsernameField($hwnd)
-    Start-Sleep -Milliseconds 250
-    [System.Windows.Forms.SendKeys]::SendWait('^a{BACKSPACE}')
-    Start-Sleep -Milliseconds 150
-    Send-TextSafe $user
-    Start-Sleep -Milliseconds 200
-    [System.Windows.Forms.Clipboard]::Clear()
-    [System.Windows.Forms.SendKeys]::SendWait('^a^c')
-    Start-Sleep -Milliseconds 200
-    $copied = [System.Windows.Forms.Clipboard]::GetText()
-}
-
-# Move to password field
-if (-not [RiotInputGuard]::IsForegroundRiot()) { exit 4 }
-[System.Windows.Forms.SendKeys]::SendWait('{TAB}')
-Start-Sleep -Milliseconds 250
-
-# Clear password field
 [System.Windows.Forms.SendKeys]::SendWait('^a{BACKSPACE}')
 Start-Sleep -Milliseconds 100
 
-# Type password
-Send-TextSafe $password
-Start-Sleep -Milliseconds 200
+[System.Windows.Forms.Clipboard]::SetText($user)
+Start-Sleep -Milliseconds 80
+[System.Windows.Forms.SendKeys]::SendWait('^v')
+Start-Sleep -Milliseconds 150
+[System.Windows.Forms.Clipboard]::Clear()
 
-# Ensure 'Stay signed in' checkbox is selected for persistent silent session capture
+# --- 5. INPUT VERIFICATION: Ensure username was entered and matches ---
+[System.Windows.Forms.SendKeys]::SendWait('^a^c')
+Start-Sleep -Milliseconds 150
+$copied = [System.Windows.Forms.Clipboard]::GetText()
+[System.Windows.Forms.Clipboard]::Clear()
+
+# If nothing was copied or text mismatch, retry focus + paste once
+if (-not $copied -or $copied.Trim() -ne $user.Trim()) {
+    Start-Sleep -Milliseconds 250
+    [RiotInputGuard]::ActivateWindowSafely($hwnd) | Out-Null
+    [RiotInputGuard]::FocusUsernameField($hwnd)
+    Start-Sleep -Milliseconds 200
+    [System.Windows.Forms.SendKeys]::SendWait('^a{BACKSPACE}')
+    Start-Sleep -Milliseconds 100
+    [System.Windows.Forms.Clipboard]::SetText($user)
+    Start-Sleep -Milliseconds 80
+    [System.Windows.Forms.SendKeys]::SendWait('^v')
+    Start-Sleep -Milliseconds 150
+    [System.Windows.Forms.Clipboard]::Clear()
+}
+
+# --- 6. Focus Password Field & Input via Safe Clipboard Paste ---
+if (-not [RiotInputGuard]::IsForegroundRiot()) { exit 4 }
+[RiotInputGuard]::FocusPasswordField($hwnd)
+Start-Sleep -Milliseconds 150
+[System.Windows.Forms.SendKeys]::SendWait('^a{BACKSPACE}')
+Start-Sleep -Milliseconds 100
+
+[System.Windows.Forms.Clipboard]::SetText($password)
+Start-Sleep -Milliseconds 80
+[System.Windows.Forms.SendKeys]::SendWait('^v')
+Start-Sleep -Milliseconds 150
+# Clean clipboard immediately so plain text password never lingers in memory/clipboard history
+[System.Windows.Forms.Clipboard]::Clear()
+
+# --- 7. Direct Form Submission ---
+# In Riot Client's login form, pressing ENTER in the password field invokes the hidden
+# <input type="submit" name="do_not_delete_used_to_capture_enter_key"> to submit credentials.
+# We NEVER send TAB or SPACE after password, strictly preventing navigation into
+# third-party social logins (Facebook, Google, Apple, Xbox).
 if ([RiotInputGuard]::IsForegroundRiot()) {
-    [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
-    Start-Sleep -Milliseconds 150
-    [System.Windows.Forms.SendKeys]::SendWait(' ')
-    Start-Sleep -Milliseconds 150
-    [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
-    Start-Sleep -Milliseconds 150
+    Start-Sleep -Milliseconds 100
     [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
 }
 
@@ -557,8 +576,12 @@ Write-Output "SUCCESS"
       ps.stdout.on('data', (d) => { output += d.toString(); });
       ps.stderr.on('data', (d) => { output += d.toString(); });
 
-      ps.stdin.write(username + '\r\n');
-      ps.stdin.write(pass + '\r\n');
+      // Transmit Base64-encoded credentials to avoid any character corruption or newline issues
+      const userB64 = Buffer.from(username, 'utf-8').toString('base64');
+      const passB64 = Buffer.from(pass, 'utf-8').toString('base64');
+
+      ps.stdin.write(userB64 + '\r\n');
+      ps.stdin.write(passB64 + '\r\n');
       ps.stdin.end();
 
       ps.on('close', (code) => {
@@ -621,6 +644,7 @@ public class RiotMouseGuard {
 
     public static IntPtr FindRiotWindow() {
         IntPtr found = IntPtr.Zero;
+        uint curPid = (uint)Process.GetCurrentProcess().Id;
         EnumWindows((hWnd, lParam) => {
             if (!IsWindowVisible(hWnd)) return true;
             RECT r;
@@ -631,10 +655,29 @@ public class RiotMouseGuard {
 
             uint pid;
             GetWindowThreadProcessId(hWnd, out pid);
+            if (pid == curPid) return true;
+
             try {
                 Process p = Process.GetProcessById((int)pid);
                 string name = p.ProcessName.ToLower();
-                if (name.Contains("riot") || name.Contains("leagueclient") || name.Contains("valorant")) {
+
+                // Explicitly ignore our own switcher, manager, or electron wrapper
+                if (name.Contains("switcher") || name.Contains("manager") || name.Contains("electron")) {
+                    return true;
+                }
+
+                var sb = new StringBuilder(256);
+                GetWindowText(hWnd, sb, 256);
+                string title = sb.ToString().ToLower();
+
+                var cb = new StringBuilder(256);
+                GetClassName(hWnd, cb, 256);
+                string cls = cb.ToString();
+
+                bool isRiotProc = name == "riot client" || name == "riotclientservices" || name.StartsWith("riotclient");
+                bool isRiotTitle = title.Contains("riot client");
+
+                if ((isRiotProc || isRiotTitle) && cls == "Chrome_WidgetWin_1") {
                     found = hWnd;
                     return false;
                 }
@@ -676,7 +719,11 @@ public class RiotMouseGuard {
         GetWindowThreadProcessId(fg, out pid);
         try {
             string name = Process.GetProcessById((int)pid).ProcessName.ToLower();
-            return name.Contains("riot") || name.Contains("leagueclient") || name.Contains("valorant");
+            if (name.Contains("switcher") || name.Contains("manager") || name.Contains("electron")) return false;
+            if (name == "riot client" || name.StartsWith("riotclient")) return true;
+            var sb = new StringBuilder(256);
+            GetWindowText(fg, sb, 256);
+            return sb.ToString().ToLower().Contains("riot client");
         } catch {
             return false;
         }
@@ -690,7 +737,8 @@ public class RiotMouseGuard {
         GetWindowThreadProcessId(wnd, out pid);
         try {
             string name = Process.GetProcessById((int)pid).ProcessName.ToLower();
-            return name.Contains("riot") || name.Contains("leagueclient") || name.Contains("valorant");
+            if (name.Contains("switcher") || name.Contains("manager") || name.Contains("electron")) return false;
+            return name == "riot client" || name.StartsWith("riotclient");
         } catch {
             return false;
         }
