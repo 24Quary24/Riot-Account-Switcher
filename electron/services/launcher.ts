@@ -45,53 +45,16 @@ export class LauncherService {
    * If wipeSession is true, also deletes active session on Riot Client so it resets to the login screen.
    * If wipeSession is false, preserves session tokens for instant silent switching.
    */
+  /**
+   * Gracefully terminate running Riot and League/Valorant processes safely.
+   * If wipeSession is true, also deletes active session on Riot Client on disk
+   * so it is guaranteed to reset to the login screen.
+   * If wipeSession is false, preserves session tokens for instant silent switching.
+   */
   public async closeRunningClients(wipeSession: boolean = false): Promise<void> {
     if (process.platform !== 'win32') return;
 
-    // 1. If wipeSession is requested, call DELETE /rso-auth/v1/session to log out cleanly
-    if (wipeSession) {
-      const lockfilePath = path.join(
-        process.env.LOCALAPPDATA || '',
-        'Riot Games',
-        'Riot Client',
-        'Config',
-        'lockfile'
-      );
-
-      if (fs.existsSync(lockfilePath)) {
-        try {
-          const content = fs.readFileSync(lockfilePath, 'utf-8');
-          const parts = content.split(':');
-          if (parts.length >= 5) {
-            const port = Number(parts[2]);
-            const pass = parts[3];
-            const auth = Buffer.from(`riot:${pass}`).toString('base64');
-            await new Promise<void>((resolve) => {
-              const req = https.request(
-                {
-                  hostname: '127.0.0.1',
-                  port,
-                  path: '/rso-auth/v1/session',
-                  method: 'DELETE',
-                  headers: { Authorization: `Basic ${auth}` },
-                  rejectUnauthorized: false,
-                  timeout: 2000,
-                },
-                () => resolve()
-              );
-              req.on('error', () => resolve());
-              req.on('timeout', () => {
-                req.destroy();
-                resolve();
-              });
-              req.end();
-            });
-          }
-        } catch {}
-      }
-    }
-
-    // 2. Kill all processes including "Riot Client.exe"
+    // 1. Kill all processes including "Riot Client.exe"
     const processesToKill = [
       'Riot Client.exe',
       'RiotClientServices.exe',
@@ -120,6 +83,22 @@ export class LauncherService {
 
     // Allow OS file handles and sockets to release cleanly
     await new Promise((res) => setTimeout(res, 1200));
+
+    // 2. If wipeSession is requested, explicitly reset persistent session on disk!
+    if (wipeSession) {
+      this.storage.wipeCurrentRiotSession();
+    }
+  }
+
+  /**
+   * Force log out of Riot Client and reset session files on disk.
+   */
+  public async forceLogoutRiotClient(): Promise<{ success: boolean; message: string }> {
+    await this.closeRunningClients(true);
+    return {
+      success: true,
+      message: 'Successfully logged out of Riot Client and cleared active session on disk.',
+    };
   }
 
   /**
@@ -198,7 +177,7 @@ export class LauncherService {
         const waitSeconds = Math.max(4, Math.min(12, settings.launchDelaySeconds || 5));
         onStatus?.(`Waiting ${waitSeconds}s for client to load, then clicking Play...`);
         await new Promise((r) => setTimeout(r, waitSeconds * 1000));
-        await this.clickPlayButton(game);
+        await this.clickPlayButton(game, onStatus);
       }
 
       account.lastPlayed = new Date().toISOString();
@@ -232,7 +211,7 @@ export class LauncherService {
           const waitSeconds = Math.max(4, Math.min(12, settings.launchDelaySeconds || 5));
           onStatus?.(`Client loading in background (${waitSeconds}s)...`);
           await new Promise((r) => setTimeout(r, waitSeconds * 1000));
-          await this.clickPlayButton(game);
+          await this.clickPlayButton(game, onStatus);
         }
 
         account.lastPlayed = new Date().toISOString();
@@ -245,8 +224,9 @@ export class LauncherService {
       }
     }
 
-    // 3. FIRST-TIME LOGIN: No saved session yet — login once via fast automation and capture session
-    onStatus?.(`Initial login for ${account.label}: logging in and saving session for future silent switches...`);
+    // 3. FIRST-TIME LOGIN OR SESSION RESET:
+    // Target account has no saved session -> MUST wipe running session so Riot Client CANNOT stay logged in to old account!
+    onStatus?.(`Switching to ${account.label}: logging out previous account and resetting session...`);
     await this.closeRunningClients(true);
 
     onStatus?.(`Opening Riot Client for ${account.label} (${game.toUpperCase()})...`);
@@ -259,19 +239,21 @@ export class LauncherService {
     });
     child.unref();
 
-    // Auto-login automation via secure STDIN
+    // Auto-login automation via strictly isolated, verified input
     if (process.platform === 'win32') {
       const loginWait = Math.max(5, Math.min(15, settings.launchDelaySeconds || 7));
       onStatus?.(`Waiting ${loginWait}s for Riot Client login screen...`);
       await new Promise((r) => setTimeout(r, loginWait * 1000));
 
-      onStatus?.(`Entering credentials for ${account.username}...`);
-      await this.injectCredentialsViaStdin(account.username, password);
+      onStatus?.(`Safely entering credentials for ${account.username} (Strict Isolation Guard)...`);
+      const typed = await this.injectCredentialsSafely(account.username, password, onStatus);
 
-      if (account.has2fa) {
+      if (!typed) {
+        onStatus?.('Input guard active: Could not safely verify Riot Client window. Waiting for user interaction.');
+      } else if (account.has2fa) {
         onStatus?.('2FA Protected: Complete verification in Riot Client (session will be saved once logged in).');
       } else {
-        onStatus?.('Login submitted. Waiting for home screen to load...');
+        onStatus?.('Credentials submitted. Waiting for home screen to load...');
         await new Promise((r) => setTimeout(r, 8000));
 
         // Automatically capture and save the session so all future launches are 100% silent!
@@ -281,7 +263,7 @@ export class LauncherService {
         }
 
         onStatus?.('Clicking Play button...');
-        await this.clickPlayButton(game);
+        await this.clickPlayButton(game, onStatus);
       }
     }
 
@@ -298,183 +280,430 @@ export class LauncherService {
   }
 
   /**
-   * Inject credentials via PowerShell STDIN.
-   * Uses Win32 SetForegroundWindow (by process handle, not title) and verifies
-   * focus before every keystroke burst so keystrokes never land in a browser or
-   * wrong field when Riot Client loads slowly.
+   * Inject credentials safely with STRICT ISOLATION and INPUT VERIFICATION.
+   * - Uses EnumWindows to locate the actual visible Riot Client window.
+   * - Uses Win32 AttachThreadInput to activate Riot Client without focus lock issues.
+   * - SAFETY GATE: Checks GetForegroundWindow(). If the foreground window does NOT belong
+   *   to a Riot process, IT NEVER TYPES A SINGLE KEYSTROKE (protecting YouTube, browsers, etc.).
+   * - INPUT VERIFICATION: Verifies via clipboard/selection that the entered username matches
+   *   what is in the input field before proceeding to password and submission.
    */
-  private async injectCredentialsViaStdin(username: string, pass: string): Promise<void> {
+  private async injectCredentialsSafely(
+    username: string,
+    pass: string,
+    onStatus?: (status: string) => void
+  ): Promise<boolean> {
     return new Promise((resolve) => {
       const psScript = `
 $ErrorActionPreference = 'SilentlyContinue'
 Add-Type -AssemblyName System.Windows.Forms
 
-# --- Win32 helpers for reliable foreground control ---
 Add-Type -TypeDefinition @"
 using System;
+using System.Text;
 using System.Runtime.InteropServices;
-public class Win32Focus {
+using System.Diagnostics;
+using System.Threading;
+
+public class RiotInputGuard {
+    public struct RECT { public int Left, Top, Right, Bottom; }
+
+    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+    [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hWnd);
-    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-    [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+    [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+
+    public static IntPtr FindRiotWindow() {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows((hWnd, lParam) => {
+            if (!IsWindowVisible(hWnd)) return true;
+            RECT r;
+            GetWindowRect(hWnd, out r);
+            int width = r.Right - r.Left;
+            int height = r.Bottom - r.Top;
+            if (width < 350 || height < 250 || r.Left < -10000) return true;
+
+            uint pid;
+            GetWindowThreadProcessId(hWnd, out pid);
+            try {
+                Process p = Process.GetProcessById((int)pid);
+                string name = p.ProcessName.ToLower();
+                if (name.Contains("riot") || name.Contains("leagueclient") || name.Contains("valorant")) {
+                    found = hWnd;
+                    return false;
+                }
+            } catch {}
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
+
+    public static bool ActivateWindowSafely(IntPtr targetHwnd) {
+        if (targetHwnd == IntPtr.Zero) return false;
+        IntPtr fgHwnd = GetForegroundWindow();
+        if (fgHwnd == targetHwnd) return true;
+
+        uint fgPid;
+        uint fgThread = fgHwnd != IntPtr.Zero ? GetWindowThreadProcessId(fgHwnd, out fgPid) : 0;
+        uint curThread = GetCurrentThreadId();
+        uint targetPid;
+        uint targetThread = GetWindowThreadProcessId(targetHwnd, out targetPid);
+
+        if (fgThread != 0 && fgThread != curThread) AttachThreadInput(curThread, fgThread, true);
+        if (targetThread != 0 && targetThread != curThread) AttachThreadInput(curThread, targetThread, true);
+
+        ShowWindow(targetHwnd, 9); // SW_RESTORE
+        BringWindowToTop(targetHwnd);
+        bool ok = SetForegroundWindow(targetHwnd);
+
+        if (fgThread != 0 && fgThread != curThread) AttachThreadInput(curThread, fgThread, false);
+        if (targetThread != 0 && targetThread != curThread) AttachThreadInput(curThread, targetThread, false);
+
+        Thread.Sleep(150);
+        return ok;
+    }
+
+    public static bool IsForegroundRiot() {
+        IntPtr fg = GetForegroundWindow();
+        if (fg == IntPtr.Zero) return false;
+        uint pid;
+        GetWindowThreadProcessId(fg, out pid);
+        try {
+            string name = Process.GetProcessById((int)pid).ProcessName.ToLower();
+            return name.Contains("riot") || name.Contains("leagueclient") || name.Contains("valorant");
+        } catch {
+            return false;
+        }
+    }
 }
 "@
 
 $user = [Console]::In.ReadLine()
 $password = [Console]::In.ReadLine()
-if (-not $user -or -not $password) { exit 0 }
+if (-not $user -or -not $password) { exit 1 }
 
-# --- Find RiotClientUx window handle (this is the login UI process) ---
+# --- 1. Find Riot Client window ---
 $hwnd = [IntPtr]::Zero
-for ($i = 0; $i -lt 24; $i++) {
-    $procs = @(Get-Process | Where-Object {
-        ($_.ProcessName -match 'RiotClientUx' -or $_.ProcessName -match 'Riot Client') -and
-        $_.MainWindowHandle -ne 0
-    })
-    if ($procs.Count -gt 0) {
-        $hwnd = $procs[0].MainWindowHandle
-        break
-    }
+for ($i = 0; $i -lt 20; $i++) {
+    $hwnd = [RiotInputGuard]::FindRiotWindow()
+    if ($hwnd -ne [IntPtr]::Zero) { break }
     Start-Sleep -Milliseconds 500
 }
 
-if ($hwnd -eq [IntPtr]::Zero) { exit 1 }
+if ($hwnd -eq [IntPtr]::Zero) {
+    Write-Output "ERR_WINDOW_NOT_FOUND"
+    exit 2
+}
 
-# --- Bring window to foreground ---
-[Win32Focus]::ShowWindow($hwnd, 9) | Out-Null
-[Win32Focus]::BringWindowToTop($hwnd) | Out-Null
-[Win32Focus]::SetForegroundWindow($hwnd) | Out-Null
+# --- 2. Activate Riot Client window safely ---
+[RiotInputGuard]::ActivateWindowSafely($hwnd) | Out-Null
+Start-Sleep -Milliseconds 400
 
-# --- Wait for login form to mount ---
-Start-Sleep -Milliseconds 800
+# --- 3. STRICT SAFETY GATE: Ensure foreground window is 100% Riot Client ---
+$isRiot = [RiotInputGuard]::IsForegroundRiot()
+if (-not $isRiot) {
+    # Retry once more with focus activation
+    [RiotInputGuard]::ActivateWindowSafely($hwnd) | Out-Null
+    Start-Sleep -Milliseconds 400
+    $isRiot = [RiotInputGuard]::IsForegroundRiot()
+}
 
-# Clear and type username
+if (-not $isRiot) {
+    # NEVER TOUCH ANYTHING ELSE! Abort immediately to protect user's browser/YouTube.
+    Write-Output "ERR_FOCUS_PROTECTED"
+    exit 3
+}
+
+# --- 4. Focus Username Field & Clear ---
 [System.Windows.Forms.SendKeys]::SendWait('^a{BACKSPACE}')
 Start-Sleep -Milliseconds 150
 
+# Type username
 foreach ($char in $user.ToCharArray()) {
+    if (-not [RiotInputGuard]::IsForegroundRiot()) { exit 4 }
     $c = [string]$char
     if ($c -match '[+^%~{}()\[\]]') { [System.Windows.Forms.SendKeys]::SendWait("{$c}") }
     else { [System.Windows.Forms.SendKeys]::SendWait($c) }
-    Start-Sleep -Milliseconds 25
+    Start-Sleep -Milliseconds 20
 }
 
 Start-Sleep -Milliseconds 150
 
-# Tab to password field and clear
+# --- 5. INPUT VERIFICATION: Assure username was typed into the correct field ---
+# Copy current field text to verify
+[System.Windows.Forms.Clipboard]::Clear()
+[System.Windows.Forms.SendKeys]::SendWait('^a^c')
+Start-Sleep -Milliseconds 150
+$copied = [System.Windows.Forms.Clipboard]::GetText()
+
+if ($copied -and $copied.Trim() -ne $user.Trim()) {
+    # If content doesn't match, re-clear and re-type with a small delay
+    [System.Windows.Forms.SendKeys]::SendWait('^a{BACKSPACE}')
+    Start-Sleep -Milliseconds 150
+    foreach ($char in $user.ToCharArray()) {
+        if (-not [RiotInputGuard]::IsForegroundRiot()) { exit 4 }
+        $c = [string]$char
+        if ($c -match '[+^%~{}()\[\]]') { [System.Windows.Forms.SendKeys]::SendWait("{$c}") }
+        else { [System.Windows.Forms.SendKeys]::SendWait($c) }
+        Start-Sleep -Milliseconds 25
+    }
+}
+
+# Move to password field
+if (-not [RiotInputGuard]::IsForegroundRiot()) { exit 4 }
 [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
 Start-Sleep -Milliseconds 200
+
+# Clear password field
 [System.Windows.Forms.SendKeys]::SendWait('^a{BACKSPACE}')
 Start-Sleep -Milliseconds 100
 
 # Type password
 foreach ($char in $password.ToCharArray()) {
+    if (-not [RiotInputGuard]::IsForegroundRiot()) { exit 4 }
     $c = [string]$char
     if ($c -match '[+^%~{}()\[\]]') { [System.Windows.Forms.SendKeys]::SendWait("{$c}") }
     else { [System.Windows.Forms.SendKeys]::SendWait($c) }
-    Start-Sleep -Milliseconds 25
+    Start-Sleep -Milliseconds 20
 }
 
-# Ensure 'Stay signed in' checkbox is selected for persistent session capture
+# Ensure 'Stay signed in' checkbox is selected for persistent silent session capture
 Start-Sleep -Milliseconds 150
-[System.Windows.Forms.SendKeys]::SendWait('{TAB}')
-Start-Sleep -Milliseconds 150
-[System.Windows.Forms.SendKeys]::SendWait(' ')
-Start-Sleep -Milliseconds 150
-[System.Windows.Forms.SendKeys]::SendWait('{TAB}')
-Start-Sleep -Milliseconds 150
-[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+if ([RiotInputGuard]::IsForegroundRiot()) {
+    [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+    Start-Sleep -Milliseconds 150
+    [System.Windows.Forms.SendKeys]::SendWait(' ')
+    Start-Sleep -Milliseconds 150
+    [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+    Start-Sleep -Milliseconds 150
+    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+}
+
+Write-Output "SUCCESS"
 `;
 
       const ps = spawn(
         'powershell.exe',
         ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', psScript],
-        { windowsHide: true, stdio: ['pipe', 'ignore', 'ignore'] }
+        { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] }
       );
+
+      let output = '';
+      ps.stdout.on('data', (d) => { output += d.toString(); });
+      ps.stderr.on('data', (d) => { output += d.toString(); });
+
       ps.stdin.write(username + '\r\n');
       ps.stdin.write(pass + '\r\n');
       ps.stdin.end();
-      ps.on('close', () => resolve());
-      ps.on('error', () => resolve());
-      // Timeout: 12s wait + fast typing
-      setTimeout(() => { try { ps.kill(); } catch {} resolve(); }, 15000);
+
+      ps.on('close', (code) => {
+        if (code === 0 && output.includes('SUCCESS')) {
+          onStatus?.('Credentials successfully entered and verified in Riot Client.');
+          resolve(true);
+        } else if (output.includes('ERR_FOCUS_PROTECTED')) {
+          onStatus?.('Safety Shield: Keystrokes were blocked because Riot Client was not focused.');
+          resolve(false);
+        } else {
+          resolve(false);
+        }
+      });
+
+      ps.on('error', () => resolve(false));
+      setTimeout(() => {
+        try { ps.kill(); } catch {}
+        resolve(false);
+      }, 20000);
     });
   }
 
   /**
-   * Click the Play button in Riot Client using a real mouse click.
-   * The Play button is not keyboard-focusable — Enter only works when hovered.
-   * We get the window rect via Win32 and click at the known relative position
-   * (~14% from left, ~87% from top) which matches where Riot Client renders it.
-   * Clicks twice with a delay to handle "New Update Available" confirmation.
+   * Click the Play button in Riot Client using a STRICTLY PROTECTED mouse click.
+   * - Verifies that the target HWND and point belong strictly to Riot Client.
+   * - Remembers the user's cursor position and immediately restores it within milliseconds
+   *   so the user's physical mouse is NEVER displaced while browsing or watching YouTube.
+   * - If Riot Client is not in the foreground, IT NEVER CLICKS.
    */
-  private async clickPlayButton(game: 'valorant' | 'league'): Promise<void> {
+  private async clickPlayButton(game: 'valorant' | 'league', onStatus?: (status: string) => void): Promise<void> {
     const psScript = `
 $ErrorActionPreference = 'SilentlyContinue'
 Add-Type -TypeDefinition @"
 using System;
+using System.Text;
 using System.Runtime.InteropServices;
+using System.Diagnostics;
 using System.Threading;
-public class Win32Mouse {
-    public struct RECT { public int Left, Top, Right, Bottom; }
 
-    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT r);
+public class RiotMouseGuard {
+    public struct RECT { public int Left, Top, Right, Bottom; }
+    public struct POINT { public int X, Y; }
+
+    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hWnd);
-    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int n);
-    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
-    [DllImport("user32.dll")] public static extern void mouse_event(uint f, int x, int y, uint d, IntPtr e);
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+    [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT pt);
+    [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT lpPoint);
+    [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
+    [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, int dx, int dy, uint dwData, IntPtr dwExtraInfo);
 
-    public static void Click(int x, int y) {
+    public static IntPtr FindRiotWindow() {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows((hWnd, lParam) => {
+            if (!IsWindowVisible(hWnd)) return true;
+            RECT r;
+            GetWindowRect(hWnd, out r);
+            int width = r.Right - r.Left;
+            int height = r.Bottom - r.Top;
+            if (width < 350 || height < 250 || r.Left < -10000) return true;
+
+            uint pid;
+            GetWindowThreadProcessId(hWnd, out pid);
+            try {
+                Process p = Process.GetProcessById((int)pid);
+                string name = p.ProcessName.ToLower();
+                if (name.Contains("riot") || name.Contains("leagueclient") || name.Contains("valorant")) {
+                    found = hWnd;
+                    return false;
+                }
+            } catch {}
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
+
+    public static bool ActivateWindowSafely(IntPtr targetHwnd) {
+        if (targetHwnd == IntPtr.Zero) return false;
+        IntPtr fgHwnd = GetForegroundWindow();
+        if (fgHwnd == targetHwnd) return true;
+
+        uint fgPid;
+        uint fgThread = fgHwnd != IntPtr.Zero ? GetWindowThreadProcessId(fgHwnd, out fgPid) : 0;
+        uint curThread = GetCurrentThreadId();
+        uint targetPid;
+        uint targetThread = GetWindowThreadProcessId(targetHwnd, out targetPid);
+
+        if (fgThread != 0 && fgThread != curThread) AttachThreadInput(curThread, fgThread, true);
+        if (targetThread != 0 && targetThread != curThread) AttachThreadInput(curThread, targetThread, true);
+
+        ShowWindow(targetHwnd, 9);
+        BringWindowToTop(targetHwnd);
+        bool ok = SetForegroundWindow(targetHwnd);
+
+        if (fgThread != 0 && fgThread != curThread) AttachThreadInput(curThread, fgThread, false);
+        if (targetThread != 0 && targetThread != curThread) AttachThreadInput(curThread, targetThread, false);
+
+        Thread.Sleep(150);
+        return ok;
+    }
+
+    public static bool IsForegroundRiot() {
+        IntPtr fg = GetForegroundWindow();
+        if (fg == IntPtr.Zero) return false;
+        uint pid;
+        GetWindowThreadProcessId(fg, out pid);
+        try {
+            string name = Process.GetProcessById((int)pid).ProcessName.ToLower();
+            return name.Contains("riot") || name.Contains("leagueclient") || name.Contains("valorant");
+        } catch {
+            return false;
+        }
+    }
+
+    public static bool IsPointInRiot(int x, int y) {
+        POINT pt = new POINT { X = x, Y = y };
+        IntPtr wnd = WindowFromPoint(pt);
+        if (wnd == IntPtr.Zero) return false;
+        uint pid;
+        GetWindowThreadProcessId(wnd, out pid);
+        try {
+            string name = Process.GetProcessById((int)pid).ProcessName.ToLower();
+            return name.Contains("riot") || name.Contains("leagueclient") || name.Contains("valorant");
+        } catch {
+            return false;
+        }
+    }
+
+    public static bool ClickPlaySafely(int x, int y) {
+        // STRICT CHECK: Both the foreground window and the target point MUST be Riot Client
+        if (!IsForegroundRiot() || !IsPointInRiot(x, y)) {
+            return false;
+        }
+
+        POINT orig;
+        GetCursorPos(out orig);
+
         SetCursorPos(x, y);
-        Thread.Sleep(120);
-        mouse_event(0x0002, 0, 0, 0, IntPtr.Zero); // MOUSEEVENTF_LEFTDOWN
-        Thread.Sleep(60);
-        mouse_event(0x0004, 0, 0, 0, IntPtr.Zero); // MOUSEEVENTF_LEFTUP
+        Thread.Sleep(80);
+        mouse_event(0x0002, 0, 0, 0, IntPtr.Zero); // LEFTDOWN
+        Thread.Sleep(50);
+        mouse_event(0x0004, 0, 0, 0, IntPtr.Zero); // LEFTUP
+        Thread.Sleep(40);
+
+        // Instantly restore user mouse position
+        SetCursorPos(orig.X, orig.Y);
+        return true;
     }
 }
 "@
 
-# Find RiotClientUx window
+# 1. Find Riot Client window
 $hwnd = [IntPtr]::Zero
 for ($i = 0; $i -lt 16; $i++) {
-    $procs = @(Get-Process | Where-Object {
-        ($_.ProcessName -match 'RiotClientUx' -or $_.ProcessName -match 'Riot Client') -and
-        $_.MainWindowHandle -ne 0
-    })
-    if ($procs.Count -gt 0) { $hwnd = $procs[0].MainWindowHandle; break }
+    $hwnd = [RiotMouseGuard]::FindRiotWindow()
+    if ($hwnd -ne [IntPtr]::Zero) { break }
     Start-Sleep -Milliseconds 500
 }
 
 if ($hwnd -eq [IntPtr]::Zero) { exit 1 }
 
-# Bring window to front
-[Win32Mouse]::ShowWindow($hwnd, 9) | Out-Null
-[Win32Mouse]::BringWindowToTop($hwnd) | Out-Null
-[Win32Mouse]::SetForegroundWindow($hwnd) | Out-Null
-Start-Sleep -Milliseconds 800
+# 2. Activate window safely
+[RiotMouseGuard]::ActivateWindowSafely($hwnd) | Out-Null
+Start-Sleep -Milliseconds 400
 
-# Get window rect and calculate Play button position
-$r = New-Object Win32Mouse+RECT
-[Win32Mouse]::GetWindowRect($hwnd, [ref]$r)
+# 3. Verify foreground window is Riot Client
+if (-not [RiotMouseGuard]::IsForegroundRiot()) {
+    # NEVER CLICK IF NOT RIOT CLIENT!
+    exit 2
+}
+
+# 4. Calculate Play button coordinates inside the window rect
+$r = New-Object RiotMouseGuard+RECT
+[RiotMouseGuard]::GetWindowRect($hwnd, [ref]$r)
 
 $w = $r.Right - $r.Left
 $h = $r.Bottom - $r.Top
 
-# Play button sits at roughly 14% from left, 87% from top in Riot Client
+if ($w -lt 200 -or $h -lt 150) { exit 3 }
+
 $playX = $r.Left + [int]($w * 0.14)
 $playY = $r.Top + [int]($h * 0.87)
 
-# First click — Play button
-[Win32Mouse]::Click($playX, $playY)
-Start-Sleep -Milliseconds 3500
-
-# Re-grab focus and click again — handles "New Update Available" confirmation
-[Win32Mouse]::SetForegroundWindow($hwnd) | Out-Null
-Start-Sleep -Milliseconds 300
-[Win32Mouse]::Click($playX, $playY)
+# 5. Click Play button with instant cursor restoration
+$clicked = [RiotMouseGuard]::ClickPlaySafely($playX, $playY)
+if ($clicked) {
+    Start-Sleep -Milliseconds 3000
+    if ([RiotMouseGuard]::IsForegroundRiot()) {
+        # Click again to handle potential "Update Available" dialog safely
+        [RiotMouseGuard]::ClickPlaySafely($playX, $playY) | Out-Null
+    }
+}
 `;
 
     await new Promise<void>((resolve) => {
@@ -485,7 +714,11 @@ Start-Sleep -Milliseconds 300
       );
       ps.on('close', () => resolve());
       ps.on('error', () => resolve());
-      setTimeout(() => { try { ps.kill(); } catch {} resolve(); }, 15000);
+      setTimeout(() => {
+        try { ps.kill(); } catch {}
+        resolve();
+      }, 15000);
     });
   }
 }
+

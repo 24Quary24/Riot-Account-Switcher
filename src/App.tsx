@@ -10,7 +10,7 @@ import { SettingsView } from './components/SettingsView';
 import { AboutView } from './components/AboutView';
 import { ToastContainer } from './components/ToastContainer';
 import { RiotAccount, AppSettings, GameType, ToastMessage, PingResult } from './types';
-import { Users } from 'lucide-react';
+import { Users, LogOut } from 'lucide-react';
 
 const MOCK_INITIAL_ACCOUNTS: RiotAccount[] = [];
 
@@ -43,6 +43,8 @@ export const App: React.FC = () => {
   // Status & Progress
   const [isLaunching, setIsLaunching] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [activeSession, setActiveSession] = useState<{ riotId: string; tagline: string; puuid: string; region?: any } | null>(null);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const isElectron = typeof window !== 'undefined' && !!(window as any).riotManagerApi;
   const api = (window as any).riotManagerApi;
@@ -58,6 +60,34 @@ export const App: React.FC = () => {
 
   const dismissToast = (id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  // Check Active Session
+  const checkActiveSession = useCallback(async () => {
+    if (isElectron && api.detectActiveSession) {
+      try {
+        const session = await api.detectActiveSession();
+        setActiveSession(session);
+      } catch {
+        setActiveSession(null);
+      }
+    }
+  }, [isElectron, api]);
+
+  const handleForceLogout = async () => {
+    if (!isElectron) return;
+    setIsLoggingOut(true);
+    addToast('Logging Out', 'Terminating Riot Client and clearing active session...', 'info');
+    try {
+      const res = await api.forceLogout();
+      addToast('Logged Out', res.message || 'Riot Client session reset.', 'success');
+      setActiveSession(null);
+      await loadData();
+    } catch (err: any) {
+      addToast('Logout Failed', err.message || 'Could not log out Riot Client', 'error');
+    } finally {
+      setIsLoggingOut(false);
+    }
   };
 
   // Load Accounts & Settings
@@ -85,15 +115,25 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     loadData();
+    checkActiveSession();
+
+    const sessionInterval = setInterval(() => {
+      checkActiveSession();
+    }, 6000);
 
     // Subscribe to launch status updates
+    let unsub: (() => void) | undefined;
     if (isElectron && api.onLaunchStatus) {
-      const unsub = api.onLaunchStatus((status: string) => {
+      unsub = api.onLaunchStatus((status: string) => {
         addToast('Launch Process', status, 'info');
       });
-      return unsub;
     }
-  }, [loadData, isElectron, api, addToast]);
+
+    return () => {
+      clearInterval(sessionInterval);
+      if (unsub) unsub();
+    };
+  }, [loadData, checkActiveSession, isElectron, api, addToast]);
 
   // Global Keyboard Shortcuts
   useEffect(() => {
@@ -286,12 +326,70 @@ export const App: React.FC = () => {
           setIsAddModalOpen(true);
         }}
         onOpenVaultModal={() => setIsVaultModalOpen(true)}
+        onForceLogout={handleForceLogout}
+        isLoggingOut={isLoggingOut}
       />
 
       {/* Main Content Viewport */}
       <main className="content-viewport">
         {activeTab === 'accounts' && (
           <div>
+            {/* Active Session Status Banner */}
+            {activeSession && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '10px 16px',
+                  marginBottom: '16px',
+                  background: 'linear-gradient(90deg, rgba(16, 185, 129, 0.12), rgba(6, 78, 59, 0.2))',
+                  border: '1px solid rgba(16, 185, 129, 0.35)',
+                  borderRadius: 'var(--radius-md)',
+                  backdropFilter: 'blur(8px)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span
+                    style={{
+                      display: 'inline-block',
+                      width: '10px',
+                      height: '10px',
+                      borderRadius: '50%',
+                      backgroundColor: '#10b981',
+                      boxShadow: '0 0 8px #10b981',
+                    }}
+                  />
+                  <span style={{ fontSize: '13px', color: '#e5e7eb' }}>
+                    Currently Logged In:{' '}
+                    <strong style={{ color: '#fff' }}>
+                      {activeSession.riotId}#{activeSession.tagline}
+                    </strong>{' '}
+                    <span style={{ fontSize: '11px', color: '#9ca3af', marginLeft: '4px' }}>
+                      ({activeSession.region || 'Active'})
+                    </span>
+                  </span>
+                </div>
+
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={handleForceLogout}
+                  disabled={isLoggingOut}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    color: '#f87171',
+                    borderColor: 'rgba(248, 113, 113, 0.3)',
+                    background: 'rgba(239, 68, 68, 0.08)',
+                  }}
+                  title="Close Riot Client and wipe active session"
+                >
+                  <LogOut size={13} />
+                  {isLoggingOut ? 'Logging out...' : 'Log Out Riot Client'}
+                </button>
+              </div>
+            )}
             {filteredAccounts.length === 0 ? (
               <div
                 style={{

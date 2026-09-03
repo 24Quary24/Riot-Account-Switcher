@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, Globe, Settings, HelpCircle, Plus, Search, ShieldCheck } from 'lucide-react';
+import { Users, Globe, Settings, HelpCircle, Plus, Search, ShieldCheck, LogOut } from 'lucide-react';
 import { GameType } from '../types';
 
 interface NavbarProps {
@@ -11,6 +11,8 @@ interface NavbarProps {
   setGameFilter: (filter: GameType | 'all') => void;
   onOpenAddModal: () => void;
   onOpenVaultModal: () => void;
+  onForceLogout?: () => void;
+  isLoggingOut?: boolean;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -22,6 +24,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   setGameFilter,
   onOpenAddModal,
   onOpenVaultModal,
+  onForceLogout,
+  isLoggingOut,
 }) => {
   return (
     <>
@@ -115,8 +119,31 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
           </div>
 
-          <div style={{ fontSize: '12px', color: 'var(--text-dim)' }}>
-            Shortcut: <kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '2px 6px', borderRadius: '4px' }}>Ctrl + N</kbd> to add account
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {onForceLogout && (
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={onForceLogout}
+                disabled={isLoggingOut}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  fontSize: '11px',
+                  padding: '4px 10px',
+                  color: '#f87171',
+                  borderColor: 'rgba(248, 113, 113, 0.3)',
+                  background: 'rgba(239, 68, 68, 0.08)',
+                }}
+                title="Terminate running Riot Client processes and clear active session on disk"
+              >
+                <LogOut size={12} />
+                {isLoggingOut ? 'Logging out...' : 'Log Out Client'}
+              </button>
+            )}
+            <div style={{ fontSize: '12px', color: 'var(--text-dim)' }}>
+              Shortcut: <kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '2px 6px', borderRadius: '4px' }}>Ctrl + N</kbd> to add account
+            </div>
           </div>
         </div>
       )}

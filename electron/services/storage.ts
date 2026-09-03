@@ -257,6 +257,65 @@ export class StorageService {
     } catch {}
   }
 
+  /**
+   * Checks whether the current Riot Client on disk has an active authenticated session.
+   */
+  public isCurrentRiotSessionActive(): boolean {
+    try {
+      const riotDataDir = path.join(process.env.LOCALAPPDATA || '', 'Riot Games', 'Riot Client', 'Data');
+      const yamlPath = path.join(riotDataDir, 'RiotGamesPrivateSettings.yaml');
+      if (!fs.existsSync(yamlPath)) return false;
+      const content = fs.readFileSync(yamlPath, 'utf-8');
+      return content.includes('riot-login:') && !content.includes('persist: null') && content.length > 200;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Resets the active Riot Client session on disk to forced logged-out state.
+   * This guarantees that when Riot Client starts, it CANNOT resume the old account
+   * and is forced to display the clean login screen.
+   */
+  public wipeCurrentRiotSession(): boolean {
+    try {
+      const riotDataDir = path.join(process.env.LOCALAPPDATA || '', 'Riot Games', 'Riot Client', 'Data');
+      if (!fs.existsSync(riotDataDir)) {
+        fs.mkdirSync(riotDataDir, { recursive: true });
+      }
+
+      // 1. Wipe persistent session tokens in RiotGamesPrivateSettings.yaml
+      const yamlPath = path.join(riotDataDir, 'RiotGamesPrivateSettings.yaml');
+      const loggedOutYaml = `psl:\n    authorization:\n        riot-client: null\nriot-login:\n    persist: null\n`;
+      fs.writeFileSync(yamlPath, loggedOutYaml, 'utf-8');
+
+      // 2. Wipe Sessions directory
+      const sessionsDir = path.join(riotDataDir, 'Sessions');
+      if (fs.existsSync(sessionsDir)) {
+        fs.rmSync(sessionsDir, { recursive: true, force: true });
+        fs.mkdirSync(sessionsDir, { recursive: true });
+      }
+
+      // 3. Remove stale lockfile if any
+      const lockfilePath = path.join(
+        process.env.LOCALAPPDATA || '',
+        'Riot Games',
+        'Riot Client',
+        'Config',
+        'lockfile'
+      );
+      if (fs.existsSync(lockfilePath)) {
+        try { fs.unlinkSync(lockfilePath); } catch {}
+      }
+
+      return true;
+    } catch (err) {
+      console.error('Failed to wipe active Riot session:', err);
+      return false;
+    }
+  }
+
+
   // --- Settings ---
   public getSettings(): AppSettings {
     if (!fs.existsSync(this.settingsFile)) return { ...DEFAULT_SETTINGS };

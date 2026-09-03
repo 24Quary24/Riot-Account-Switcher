@@ -153,6 +153,13 @@ function updateTrayMenu() {
     },
     { type: 'separator' },
     {
+      label: 'Log Out Riot Client',
+      click: async () => {
+        await launcherService.forceLogoutRiotClient();
+      },
+    },
+    { type: 'separator' },
+    {
       label: 'Quit',
       click: () => {
         isQuitting = true;
@@ -239,6 +246,10 @@ function setupIpcHandlers() {
     return launcherService.launchAccount(accountId, game, (status) => {
       event.sender.send('launcher:status', status);
     });
+  });
+
+  ipcMain.handle('launcher:force-logout', async () => {
+    return launcherService.forceLogoutRiotClient();
   });
 
   ipcMain.handle('riot:refresh-stats', async (_event, account: RiotAccount) => {

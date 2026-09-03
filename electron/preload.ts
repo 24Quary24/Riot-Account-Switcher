@@ -18,6 +18,7 @@ export interface RiotManagerApi {
   closeWindow: () => void;
   detectActiveSession: () => Promise<{ riotId: string; tagline: string; puuid: string; region?: Region } | null>;
   captureSession: (accountId: string) => Promise<boolean>;
+  forceLogout: () => Promise<{ success: boolean; message: string }>;
   onLaunchStatus: (callback: (status: string) => void) => () => void;
 }
 
@@ -29,6 +30,7 @@ const api: RiotManagerApi = {
   refreshAccountStats: (account) => ipcRenderer.invoke('riot:refresh-stats', account),
   detectActiveSession: () => ipcRenderer.invoke('riot:detect-current-session'),
   captureSession: (accountId) => ipcRenderer.invoke('session:capture', accountId),
+  forceLogout: () => ipcRenderer.invoke('launcher:force-logout'),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
   selectRiotClientPath: () => ipcRenderer.invoke('settings:select-path'),
