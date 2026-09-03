@@ -75,15 +75,24 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
     setIsSubmitting(true);
     setErrorMsg('');
     try {
+      let finalRiotId = riotId.trim();
+      let finalTagline = tagline.trim().replace(/^#/, '');
+      if (finalRiotId.includes('#')) {
+        const [idPart, tagPart] = finalRiotId.split('#');
+        finalRiotId = idPart.trim();
+        if (!finalTagline && tagPart) finalTagline = tagPart.trim();
+      }
+
       const accountData: RiotAccount = {
         id: editingAccount ? editingAccount.id : `acc-${Date.now()}`,
         label: label.trim(),
         username: username.trim(),
         region,
         games,
-        riotId: riotId.trim(),
-        tagline: tagline.trim(),
+        riotId: finalRiotId,
+        tagline: finalTagline,
         has2fa,
+        isFavorite: editingAccount?.isFavorite || false,
         createdAt: editingAccount ? editingAccount.createdAt : new Date().toISOString(),
       };
       await onSave(accountData, password.trim() || undefined);
@@ -194,9 +203,18 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
                 <input
                   type="text"
                   className="form-input"
-                  placeholder="e.g. Veltx, Chamborist"
+                  placeholder="e.g. Veltx or Veltx#EUW"
                   value={riotId}
-                  onChange={(e) => setRiotId(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val.includes('#')) {
+                      const [idPart, tagPart] = val.split('#');
+                      setRiotId(idPart.trim());
+                      if (tagPart) setTagline(tagPart.trim());
+                    } else {
+                      setRiotId(val);
+                    }
+                  }}
                 />
               </div>
               <div className="form-group">

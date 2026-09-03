@@ -221,10 +221,11 @@ export class RiotApiService {
         account.username &&
         String(activeUser).toLowerCase() === account.username.toLowerCase();
 
+      const targetRiotId = (account.riotId || account.label || '').split('#')[0].trim().toLowerCase();
       const matchRiotId =
         activeSession.riotId &&
-        (account.riotId || account.label) &&
-        activeSession.riotId.toLowerCase() === (account.riotId || account.label).toLowerCase();
+        targetRiotId &&
+        activeSession.riotId.toLowerCase() === targetRiotId;
 
       if (!matchUsername && !matchRiotId) {
         // The active session in the Riot Client belongs to a different account!

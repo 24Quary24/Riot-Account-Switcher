@@ -85,6 +85,7 @@ export interface RiotAccount {
   valorantStats?: ValorantStats;
   leagueStats?: LeagueStats;
   hasSavedSession?: boolean;
+  isFavorite?: boolean;
 }
 
 export interface AppSettings {

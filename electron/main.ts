@@ -324,6 +324,12 @@ function setupIpcHandlers() {
     return storageService.saveAccountSession(accountId);
   });
 
+  ipcMain.handle('session:clear', async (_event, accountId: string) => {
+    if (typeof accountId !== 'string' || !accountId) return false;
+    storageService.deleteAccountSession(accountId);
+    return true;
+  });
+
   ipcMain.handle('settings:get', () => {
     return storageService.getSettings();
   });
@@ -333,6 +339,15 @@ function setupIpcHandlers() {
       throw new Error('Invalid settings object');
     }
     return storageService.saveSettings(settings);
+  });
+
+  ipcMain.handle('settings:validate-path', (_event, testPath: string) => {
+    if (!testPath || typeof testPath !== 'string') return false;
+    try {
+      return fs.existsSync(testPath);
+    } catch {
+      return false;
+    }
   });
 
   ipcMain.handle('settings:select-path', async () => {

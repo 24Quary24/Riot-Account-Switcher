@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, ShieldCheck, MoreVertical, Edit2, Trash2, Copy, Check, Gamepad2, Zap } from 'lucide-react';
+import { Play, ShieldCheck, MoreVertical, Edit2, Trash2, Copy, Check, Gamepad2, Zap, Star, RotateCcw } from 'lucide-react';
 import { RiotAccount } from '../types';
 
 interface AccountCardProps {
@@ -7,6 +7,8 @@ interface AccountCardProps {
   onLaunch: (accountId: string, game: 'valorant' | 'league') => void;
   onEdit: (account: RiotAccount) => void;
   onDelete: (account: RiotAccount) => void;
+  onToggleFavorite?: (account: RiotAccount) => void;
+  onRefresh?: () => void;
   isLaunching?: boolean;
 }
 
@@ -15,6 +17,8 @@ export const AccountCard: React.FC<AccountCardProps> = ({
   onLaunch,
   onEdit,
   onDelete,
+  onToggleFavorite,
+  onRefresh,
   isLaunching,
 }) => {
   const [showMenu, setShowMenu] = useState(false);
@@ -40,7 +44,7 @@ export const AccountCard: React.FC<AccountCardProps> = ({
   };
 
   return (
-    <div className="account-card" style={{ cursor: 'default' }}>
+    <div className="account-card" style={{ cursor: 'default', position: 'relative' }}>
       <div className="card-header">
         <div className="card-avatar-wrap">
           <div className="card-avatar">
@@ -52,8 +56,29 @@ export const AccountCard: React.FC<AccountCardProps> = ({
             />
           </div>
           <div className="card-identity">
-            <div className="account-label">
+            <div className="account-label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span>{account.label}</span>
+              {onToggleFavorite && (
+                <button
+                  className="btn-icon"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleFavorite(account);
+                  }}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    padding: '2px',
+                    cursor: 'pointer',
+                    color: account.isFavorite ? '#fbbf24' : 'rgba(255,255,255,0.2)',
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                  title={account.isFavorite ? 'Unpin account' : 'Pin account to top'}
+                >
+                  <Star size={13} fill={account.isFavorite ? '#fbbf24' : 'none'} />
+                </button>
+              )}
             </div>
             <div className="account-riot-id">
               {account.riotId ? `${account.riotId}#${account.tagline || account.region}` : account.username}
@@ -106,7 +131,7 @@ export const AccountCard: React.FC<AccountCardProps> = ({
                 padding: '4px',
                 zIndex: 50,
                 boxShadow: 'var(--shadow-md)',
-                minWidth: '140px',
+                minWidth: '150px',
               }}
               onClick={(e) => e.stopPropagation()}
             >
@@ -127,13 +152,27 @@ export const AccountCard: React.FC<AccountCardProps> = ({
                   setShowMenu(false);
                   const ok = await (window as any).riotManagerApi?.captureSession(account.id);
                   if (ok) {
-                    account.hasSavedSession = true;
+                    onRefresh?.();
                   }
                 }}
                 title="Save current Riot Client session for silent switching"
               >
                 <Zap size={13} /> Save Session
               </button>
+              {account.hasSavedSession && (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  style={{ width: '100%', justifyContent: 'flex-start', border: 'none', background: 'transparent', color: '#fb923c' }}
+                  onClick={async () => {
+                    setShowMenu(false);
+                    await (window as any).riotManagerApi?.clearSession(account.id);
+                    onRefresh?.();
+                  }}
+                  title="Clear saved silent session if tokens expired or changed"
+                >
+                  <RotateCcw size={13} /> Reset Session
+                </button>
+              )}
               <button
                 className="btn btn-secondary btn-sm"
                 style={{ width: '100%', justifyContent: 'flex-start', border: 'none', background: 'transparent' }}

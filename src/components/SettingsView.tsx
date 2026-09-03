@@ -17,10 +17,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 }) => {
   const [formData, setFormData] = useState<AppSettings>(settings);
   const [saving, setSaving] = useState(false);
+  const [isValidPath, setIsValidPath] = useState<boolean | null>(null);
 
   useEffect(() => {
     setFormData(settings);
   }, [settings]);
+
+  useEffect(() => {
+    const validate = async () => {
+      if ((window as any).riotManagerApi?.validateRiotPath && formData.riotClientPath) {
+        const ok = await (window as any).riotManagerApi.validateRiotPath(formData.riotClientPath);
+        setIsValidPath(ok);
+      }
+    };
+    validate();
+  }, [formData.riotClientPath]);
 
   const handleBrowsePath = async () => {
     const selected = await onSelectPath();
@@ -71,6 +82,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <span style={{ fontSize: '14px', fontWeight: 800, color: '#FFF' }}>
               Riot Client Executable Location
             </span>
+            {isValidPath === true && (
+              <span className="stat-chip accent-teal" style={{ marginLeft: 'auto', fontSize: '11px', gap: '4px' }}>
+                <Check size={12} /> Valid Executable
+              </span>
+            )}
+            {isValidPath === false && (
+              <span className="stat-chip" style={{ marginLeft: 'auto', fontSize: '11px', color: '#f87171', borderColor: 'rgba(248,113,113,0.3)', background: 'rgba(239,68,68,0.1)' }}>
+                Executable Not Found
+              </span>
+            )}
           </div>
 
           <div style={{ display: 'flex', gap: '10px' }}>

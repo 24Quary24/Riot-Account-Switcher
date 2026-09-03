@@ -42,6 +42,7 @@ export const App: React.FC = () => {
 
   // Status & Progress
   const [isLaunching, setIsLaunching] = useState(false);
+  const [launchStatus, setLaunchStatus] = useState('');
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [activeSession, setActiveSession] = useState<{ riotId: string; tagline: string; puuid: string; region?: any } | null>(null);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -125,7 +126,7 @@ export const App: React.FC = () => {
     let unsub: (() => void) | undefined;
     if (isElectron && api.onLaunchStatus) {
       unsub = api.onLaunchStatus((status: string) => {
-        addToast('Launch Process', status, 'info');
+        setLaunchStatus(status);
       });
     }
 
@@ -133,7 +134,7 @@ export const App: React.FC = () => {
       clearInterval(sessionInterval);
       if (unsub) unsub();
     };
-  }, [loadData, checkActiveSession, isElectron, api, addToast]);
+  }, [loadData, checkActiveSession, isElectron, api]);
 
   // Global Keyboard Shortcuts
   useEffect(() => {
@@ -166,7 +167,7 @@ export const App: React.FC = () => {
     if (!target) return;
 
     setIsLaunching(true);
-    addToast('Starting Client', `Preparing to launch ${game.toUpperCase()} for ${target.label}...`, 'info');
+    setLaunchStatus(`Preparing ${game.toUpperCase()} for ${target.label}...`);
 
     if (isElectron) {
       try {
@@ -178,10 +179,13 @@ export const App: React.FC = () => {
         addToast('Launch Failed', err.message || 'Error executing Riot client', 'error');
       } finally {
         setIsLaunching(false);
+        setLaunchStatus('');
+        checkActiveSession();
       }
     } else {
       setTimeout(() => {
         setIsLaunching(false);
+        setLaunchStatus('');
         addToast('Simulated Launch', `In production, Riot Client launches with ${target.username} and starts ${game.toUpperCase()}`, 'success');
       }, 1500);
     }
@@ -206,6 +210,17 @@ export const App: React.FC = () => {
     }
 
     addToast('Account Saved', `${account.label} credentials encrypted & saved securely.`, 'success');
+  };
+
+  // Toggle Favorite
+  const handleToggleFavorite = async (account: RiotAccount) => {
+    const updated = { ...account, isFavorite: !account.isFavorite };
+    await handleSaveAccount(updated);
+    addToast(
+      updated.isFavorite ? 'Account Pinned' : 'Account Unpinned',
+      `${account.label} ${updated.isFavorite ? 'pinned to top' : 'unpinned'}`,
+      'info'
+    );
   };
 
   // Delete Account
@@ -288,21 +303,27 @@ export const App: React.FC = () => {
     ];
   };
 
-  // Filtering Accounts
-  const filteredAccounts = accounts.filter((acc) => {
-    if (gameFilter !== 'all') {
-      if (acc.games !== 'both' && acc.games !== gameFilter) return false;
-    }
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      const matchLabel = acc.label.toLowerCase().includes(q);
-      const matchUser = acc.username.toLowerCase().includes(q);
-      const matchRiotId = (acc.riotId || '').toLowerCase().includes(q);
-      const matchRegion = acc.region.toLowerCase().includes(q);
-      return matchLabel || matchUser || matchRiotId || matchRegion;
-    }
-    return true;
-  });
+  // Filtering & Sorting Accounts (Favorites always on top)
+  const filteredAccounts = accounts
+    .filter((acc) => {
+      if (gameFilter !== 'all') {
+        if (acc.games !== 'both' && acc.games !== gameFilter) return false;
+      }
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matchLabel = acc.label.toLowerCase().includes(q);
+        const matchUser = acc.username.toLowerCase().includes(q);
+        const matchRiotId = (acc.riotId || '').toLowerCase().includes(q);
+        const matchTag = (acc.tagline || '').toLowerCase().includes(q);
+        if (!matchLabel && !matchUser && !matchRiotId && !matchTag) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      if (a.isFavorite && !b.isFavorite) return -1;
+      if (!a.isFavorite && b.isFavorite) return 1;
+      return 0;
+    });
 
   return (
     <div className="app-shell">
@@ -434,6 +455,8 @@ export const App: React.FC = () => {
                       setIsAddModalOpen(true);
                     }}
                     onDelete={handleDeleteAccount}
+                    onToggleFavorite={handleToggleFavorite}
+                    onRefresh={loadData}
                     isLaunching={isLaunching}
                   />
                 ))}
@@ -483,6 +506,44 @@ export const App: React.FC = () => {
         onImport={handleImportVault}
         onNotify={addToast}
       />
+
+      {/* Floating Launch Status Banner */}
+      {isLaunching && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: '24px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: 'rgba(16, 20, 28, 0.94)',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            borderRadius: '24px',
+            padding: '10px 22px',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.55)',
+            backdropFilter: 'blur(12px)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            zIndex: 1500,
+            color: '#FFF',
+            fontSize: '13px',
+            fontWeight: 600,
+            letterSpacing: '0.01em',
+          }}
+        >
+          <div
+            style={{
+              width: '14px',
+              height: '14px',
+              border: '2px solid rgba(255, 255, 255, 0.2)',
+              borderTopColor: 'var(--riot-red)',
+              borderRadius: '50%',
+              animation: 'spin 0.8s linear infinite',
+            }}
+          />
+          <span>{launchStatus || 'Switching accounts & preparing Riot Client...'}</span>
+        </div>
+      )}
 
       {/* Floating Toast Notification Stack */}
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />

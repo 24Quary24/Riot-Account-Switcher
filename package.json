@@ -1,7 +1,7 @@
 {
   "name": "riot-account-manager",
-  "version": "1.3.0",
-  "description": "Multi-Account Riot Client Wrapper for Valorant & League of Legends with secure credential management",
+  "version": "1.4.0",
+  "description": "Premium Riot Account Switcher for Valorant and League of Legends, with secure credential management",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev:renderer": "vite",
