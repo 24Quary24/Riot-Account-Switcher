@@ -1,6 +1,6 @@
 {
   "name": "riot-account-manager",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Premium Riot Account Switcher for Valorant and League of Legends, with secure credential management",
   "main": "dist-electron/main.js",
   "scripts": {

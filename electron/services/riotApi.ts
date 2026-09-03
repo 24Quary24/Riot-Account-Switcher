@@ -56,15 +56,9 @@ export class RiotApiService {
   }
 
   /**
-   * Automatically detect the Riot ID, tagline, and PUUID from the active Riot Client session.
+   * Reads and parses port and authentication token from Riot Client's lockfile.
    */
-  public async detectActiveSession(): Promise<{
-    riotId: string;
-    tagline: string;
-    puuid: string;
-    username?: string;
-    region?: Region;
-  } | null> {
+  public getRiotClientLockfile(): { port: number; auth: string } | null {
     const lockfilePath = path.join(
       process.env.LOCALAPPDATA || '',
       'Riot Games',
@@ -84,11 +78,33 @@ export class RiotApiService {
 
       const port = Number(parts[2]);
       const pass = parts[3];
+      if (!port || !pass) return null;
       const auth = Buffer.from(`riot:${pass}`).toString('base64');
+      return { port, auth };
+    } catch {
+      return null;
+    }
+  }
 
+  /**
+   * Automatically detect the Riot ID, tagline, and PUUID from the active Riot Client session.
+   */
+  public async detectActiveSession(): Promise<{
+    riotId: string;
+    tagline: string;
+    puuid: string;
+    username?: string;
+    region?: Region;
+  } | null> {
+    const lock = this.getRiotClientLockfile();
+    if (!lock) {
+      return null;
+    }
+
+    try {
       const session = await this.makeHttpsRequest<any>(
-        `https://127.0.0.1:${port}/chat/v1/session`,
-        { Authorization: `Basic ${auth}` },
+        `https://127.0.0.1:${lock.port}/chat/v1/session`,
+        { Authorization: `Basic ${lock.auth}` },
         true
       );
 
@@ -113,6 +129,114 @@ export class RiotApiService {
     }
 
     return null;
+  }
+
+  /**
+   * Checks if Riot Client has fully initialized its authentication module and login screen.
+   * Returns true only when /riot-login/v1/status is 'not_logged_in' and /rso-authenticator reports 'auth'.
+   */
+  public async checkLoginScreenReady(): Promise<boolean> {
+    const lock = this.getRiotClientLockfile();
+    if (!lock) return false;
+
+    try {
+      const headers = { Authorization: `Basic ${lock.auth}` };
+
+      // 1. Verify riot-login status is in 'not_logged_in' phase
+      const status = await this.makeHttpsRequest<{ persist?: boolean; phase?: string }>(
+        `https://127.0.0.1:${lock.port}/riot-login/v1/status`,
+        headers,
+        true
+      );
+      if (!status || status.phase !== 'not_logged_in') {
+        return false;
+      }
+
+      // 2. Verify rso-authenticator has finished initializing the 'riot_identity' login form
+      const auth = await this.makeHttpsRequest<{ type?: string; auth?: { auth_method?: string } }>(
+        `https://127.0.0.1:${lock.port}/rso-authenticator/v1/authentication`,
+        headers,
+        true
+      );
+      if (auth && auth.type === 'auth' && auth.auth?.auth_method === 'riot_identity') {
+        return true;
+      }
+
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Smartly waits until the Riot Client login screen is completely rendered and interactable.
+   * Polls lockfile and local API endpoints with live feedback instead of guessing static wait times.
+   */
+  public async waitForLoginScreen(
+    timeoutMs: number = 45000,
+    onStatus?: (status: string) => void
+  ): Promise<boolean> {
+    const startTime = Date.now();
+    let lockfileFound = false;
+
+    while (Date.now() - startTime < timeoutMs) {
+      const lock = this.getRiotClientLockfile();
+      if (!lock) {
+        const elapsed = Math.round((Date.now() - startTime) / 1000);
+        onStatus?.(`Waiting for Riot Client to launch (${elapsed}s)...`);
+      } else {
+        if (!lockfileFound) {
+          lockfileFound = true;
+          onStatus?.('Riot Client process detected. Waiting for login screen to render...');
+        }
+        const isReady = await this.checkLoginScreenReady();
+        if (isReady) {
+          onStatus?.('Riot Client login screen fully loaded and ready!');
+          return true;
+        }
+      }
+      await new Promise((r) => setTimeout(r, 600));
+    }
+
+    return false;
+  }
+
+  /**
+   * Smartly waits until credentials submission completes and the user enters the logged-in state.
+   */
+  public async waitForLoginCompletion(
+    timeoutMs: number = 25000,
+    onStatus?: (status: string) => void
+  ): Promise<boolean> {
+    const startTime = Date.now();
+    while (Date.now() - startTime < timeoutMs) {
+      const lock = this.getRiotClientLockfile();
+      if (lock) {
+        try {
+          const headers = { Authorization: `Basic ${lock.auth}` };
+          const status = await this.makeHttpsRequest<{ phase?: string }>(
+            `https://127.0.0.1:${lock.port}/riot-login/v1/status`,
+            headers,
+            true
+          );
+          if (status && status.phase === 'logged_in') {
+            return true;
+          }
+          const chat = await this.makeHttpsRequest<{ loaded?: boolean; state?: string }>(
+            `https://127.0.0.1:${lock.port}/chat/v1/session`,
+            headers,
+            true
+          );
+          if (chat && (chat.loaded === true || chat.state === 'connected')) {
+            return true;
+          }
+        } catch {}
+      }
+      const elapsed = Math.round((Date.now() - startTime) / 1000);
+      onStatus?.(`Logging in and loading home screen (${elapsed}s)...`);
+      await new Promise((r) => setTimeout(r, 800));
+    }
+    return false;
   }
 
   /**
