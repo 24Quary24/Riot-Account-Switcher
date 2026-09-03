@@ -12,7 +12,8 @@
     "start:dist": "npm run build && electron .",
     "dist": "npm run build && electron-builder --win",
     "dist:portable": "npm run build && electron-builder --win portable",
-    "dist:dir": "npm run build && electron-builder --win --dir"
+    "dist:dir": "npm run build && electron-builder --win --dir",
+    "release:github": "node scripts/release_github.cjs"
   },
   "build": {
     "appId": "com.riotmanager.app",
