@@ -109,12 +109,17 @@ export class RiotApiService {
       );
 
       if (session && session.game_name && session.game_tag) {
-        let detectedRegion: Region = 'EUNE';
-        if (session.region?.startsWith('eu')) detectedRegion = 'EUNE';
-        else if (session.region?.startsWith('na')) detectedRegion = 'NA';
-        else if (session.region?.startsWith('kr')) detectedRegion = 'KR';
-        else if (session.region?.startsWith('ap')) detectedRegion = 'AP';
-        else if (session.region?.startsWith('br')) detectedRegion = 'BR';
+        const reg = String(session.region || '').toLowerCase();
+        let detectedRegion: Region = 'EUW';
+        if (reg.includes('euw') || reg.includes('europe_west') || reg === 'eu') detectedRegion = 'EUW';
+        else if (reg.includes('eun') || reg.includes('eune') || reg.includes('nordic')) detectedRegion = 'EUNE';
+        else if (reg.includes('na') || reg.includes('north_america')) detectedRegion = 'NA';
+        else if (reg.includes('kr') || reg.includes('korea')) detectedRegion = 'KR';
+        else if (reg.includes('ap') || reg.includes('asia') || reg.includes('jp') || reg.includes('sg')) detectedRegion = 'AP';
+        else if (reg.includes('br') || reg.includes('brazil')) detectedRegion = 'BR';
+        else if (reg.includes('lan')) detectedRegion = 'LAN';
+        else if (reg.includes('las')) detectedRegion = 'LAS';
+        else if (reg.includes('oc')) detectedRegion = 'OCE';
 
         return {
           riotId: session.game_name,
@@ -351,7 +356,12 @@ export class RiotApiService {
         targetRiotId &&
         activeSession.riotId.toLowerCase() === targetRiotId;
 
-      if (!matchUsername && !matchRiotId) {
+      const matchTagline =
+        !activeSession.tagline ||
+        !account.tagline ||
+        activeSession.tagline.toLowerCase() === account.tagline.toLowerCase();
+
+      if (!matchUsername && !(matchRiotId && matchTagline)) {
         // The active session in the Riot Client belongs to a different account!
         // NEVER steal the other account's stats.
         return account.valorantStats || this.getCleanDefaultValorantStats();
@@ -651,12 +661,19 @@ export class RiotApiService {
   /**
    * Reads live RP, Blue Essence, Champions, and Skins directly from running League of Legends Client
    */
-  public async fetchLocalLcuStats(_account: RiotAccount): Promise<Partial<LeagueStats> | undefined> {
+  public async fetchLocalLcuStats(account: RiotAccount): Promise<Partial<LeagueStats> | undefined> {
+    const settings = this.storage.getSettings();
+    const dynamicCandidate = settings.riotClientPath
+      ? path.join(path.dirname(path.dirname(settings.riotClientPath)), 'League of Legends', 'lockfile')
+      : '';
+
     const candidatePaths = [
+      dynamicCandidate,
       'C:\\Riot Games\\League of Legends\\lockfile',
       'D:\\Riot Games\\League of Legends\\lockfile',
       'E:\\Riot Games\\League of Legends\\lockfile',
-    ];
+      'C:\\Program Files\\Riot Games\\League of Legends\\lockfile',
+    ].filter(Boolean);
 
     let lockfilePath = '';
     for (const cp of candidatePaths) {
@@ -683,6 +700,22 @@ export class RiotApiService {
         headers,
         true
       ).catch(() => null);
+
+      if (!summoner) return undefined;
+
+      // GUARD: Verify that the current active summoner in LCU actually belongs to this account
+      const sumName = (summoner.gameName || summoner.displayName || '').toLowerCase();
+      const sumTag = (summoner.tagLine || '').toLowerCase();
+      const accName = (account.riotId || account.label || '').split('#')[0].trim().toLowerCase();
+      const accTag = (account.tagline || '').toLowerCase();
+
+      const matchName = sumName && accName && sumName === accName;
+      const matchTag = !sumTag || !accTag || sumTag === accTag;
+
+      if (!matchName || !matchTag) {
+        // Active League client belongs to a different summoner — do not contaminate stats!
+        return undefined;
+      }
 
       // 2. Wallet (RP and BE)
       const wallet = await this.makeHttpsRequest<any>(
@@ -812,27 +845,39 @@ export class RiotApiService {
       const cleanTag = encodeURIComponent(tag);
       const url = `https://op.gg/lol/summoners/${region}/${cleanName}-${cleanTag}`;
 
-      const req = https.request(
-        url,
-        {
-          method: 'GET',
-          headers: {
-            'User-Agent':
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            Accept: 'text/html,application/xhtml+xml',
+      const fetchUrl = (targetUrl: string, redirectsRemaining: number = 2) => {
+        const parsed = new URL(targetUrl);
+        const req = https.request(
+          targetUrl,
+          {
+            hostname: parsed.hostname,
+            path: parsed.pathname + parsed.search,
+            method: 'GET',
+            headers: {
+              'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              Accept: 'text/html,application/xhtml+xml',
+            },
+            timeout: 6000,
           },
-          timeout: 6000,
-        },
-        (res) => {
-          let html = '';
-          res.on('data', (chunk) => {
-            html += chunk;
-          });
-          res.on('end', () => {
-            if (!res.statusCode || res.statusCode >= 400 || res.statusCode === 308) {
-              resolve(undefined);
+          (res) => {
+            if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location && redirectsRemaining > 0) {
+              const redirUrl = res.headers.location.startsWith('http')
+                ? res.headers.location
+                : `https://op.gg${res.headers.location}`;
+              fetchUrl(redirUrl, redirectsRemaining - 1);
               return;
             }
+
+            let html = '';
+            res.on('data', (chunk) => {
+              html += chunk;
+            });
+            res.on('end', () => {
+              if (!res.statusCode || res.statusCode >= 400 || res.statusCode === 308) {
+                resolve(undefined);
+                return;
+              }
 
             let summonerLevel = 1;
             let soloRank = 'Unranked';
@@ -922,6 +967,9 @@ export class RiotApiService {
         resolve(undefined);
       });
       req.end();
+    };
+
+      fetchUrl(url);
     });
   }
 

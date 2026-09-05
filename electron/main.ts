@@ -197,12 +197,17 @@ function setupIpcHandlers() {
     // Only sync stats if Riot Client is actively running and matches this account
     try {
       const activeSession = await riotApiService.detectActiveSession();
-      if (
+      const matchRiotId =
         activeSession &&
         activeSession.riotId &&
         account.riotId &&
-        activeSession.riotId.toLowerCase() === account.riotId.toLowerCase()
-      ) {
+        activeSession.riotId.toLowerCase() === account.riotId.toLowerCase();
+      const matchTag =
+        !activeSession?.tagline ||
+        !account.tagline ||
+        activeSession.tagline.toLowerCase() === account.tagline.toLowerCase();
+
+      if (activeSession && matchRiotId && matchTag) {
         const realStats = await riotApiService.fetchAccountStats(account);
         if (realStats.valorantStats) {
           account.valorantStats = {
@@ -308,10 +313,12 @@ function setupIpcHandlers() {
     const session = await riotApiService.detectActiveSession();
     if (session) {
       const accounts = storageService.getAccounts();
-      const match = accounts.find(a =>
-        (a.riotId && session.riotId && a.riotId.toLowerCase() === session.riotId.toLowerCase()) ||
-        (a.username && session.username && a.username.toLowerCase() === session.username.toLowerCase())
-      );
+      const match = accounts.find((a) => {
+        const matchUser = a.username && session.username && a.username.toLowerCase() === session.username.toLowerCase();
+        const matchRiotId = a.riotId && session.riotId && a.riotId.toLowerCase() === session.riotId.toLowerCase();
+        const matchTag = !a.tagline || !session.tagline || a.tagline.toLowerCase() === session.tagline.toLowerCase();
+        return matchUser || (matchRiotId && matchTag);
+      });
       if (match) {
         storageService.saveAccountSession(match.id);
       }
@@ -421,10 +428,12 @@ app.whenReady().then(() => {
       const active = await riotApiService.detectActiveSession();
       if (active) {
         const accounts = storageService.getAccounts();
-        const match = accounts.find((a) =>
-          (a.riotId && active.riotId && a.riotId.toLowerCase() === active.riotId.toLowerCase()) ||
-          (a.username && active.username && a.username.toLowerCase() === active.username.toLowerCase())
-        );
+        const match = accounts.find((a) => {
+          const matchUser = a.username && active.username && a.username.toLowerCase() === active.username.toLowerCase();
+          const matchRiotId = a.riotId && active.riotId && a.riotId.toLowerCase() === active.riotId.toLowerCase();
+          const matchTag = !a.tagline || !active.tagline || a.tagline.toLowerCase() === active.tagline.toLowerCase();
+          return matchUser || (matchRiotId && matchTag);
+        });
         if (match) {
           storageService.saveAccountSession(match.id);
         }

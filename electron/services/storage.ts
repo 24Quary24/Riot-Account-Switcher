@@ -143,9 +143,22 @@ export class StorageService {
 
   public saveAccount(account: RiotAccount, password?: string): void {
     const accounts = this.getAccounts();
-    const idx = accounts.findIndex(a => a.id === account.id || a.username.toLowerCase() === account.username.toLowerCase());
+    const idx = accounts.findIndex(
+      (a) => a.id === account.id || a.username.toLowerCase() === account.username.toLowerCase()
+    );
+
     if (idx >= 0) {
-      accounts[idx] = { ...accounts[idx], ...account };
+      const existing = accounts[idx];
+      // If the username was renamed during an edit:
+      if (existing.username.toLowerCase() !== account.username.toLowerCase()) {
+        const oldPassword = this.getAccountPassword(existing.username);
+        this.deleteAccountPassword(existing.username);
+        // If user didn't enter a new password, migrate the existing password to the new username
+        if (!password && oldPassword) {
+          this.storeAccountPassword(account.username, oldPassword);
+        }
+      }
+      accounts[idx] = { ...existing, ...account };
     } else {
       accounts.push(account);
     }
@@ -205,10 +218,15 @@ export class StorageService {
       const sessionsSrc = path.join(riotDataDir, 'Sessions');
       const sessionsDest = path.join(sessionDir, 'Sessions');
       if (fs.existsSync(sessionsSrc)) {
-        if (fs.existsSync(sessionsDest)) {
-          fs.rmSync(sessionsDest, { recursive: true, force: true });
+        try {
+          if (fs.existsSync(sessionsDest)) {
+            fs.rmSync(sessionsDest, { recursive: true, force: true });
+          }
+          fs.cpSync(sessionsSrc, sessionsDest, { recursive: true });
+        } catch (e) {
+          // Non-critical: some SQLite cookies may have transient OS read locks
+          console.warn(`Sessions dir copy warning for ${accountId}:`, e);
         }
-        fs.cpSync(sessionsSrc, sessionsDest, { recursive: true });
       }
 
       return true;
@@ -228,17 +246,37 @@ export class StorageService {
         fs.mkdirSync(riotDataDir, { recursive: true });
       }
 
+      // 1. Restore private settings YAML
       const yamlSrc = path.join(sessionDir, 'RiotGamesPrivateSettings.yaml');
       const yamlDest = path.join(riotDataDir, 'RiotGamesPrivateSettings.yaml');
       fs.copyFileSync(yamlSrc, yamlDest);
 
+      // 2. Restore Sessions directory
       const sessionsSrc = path.join(sessionDir, 'Sessions');
       const sessionsDest = path.join(riotDataDir, 'Sessions');
       if (fs.existsSync(sessionsSrc)) {
-        if (fs.existsSync(sessionsDest)) {
-          fs.rmSync(sessionsDest, { recursive: true, force: true });
+        try {
+          if (fs.existsSync(sessionsDest)) {
+            fs.rmSync(sessionsDest, { recursive: true, force: true });
+          }
+          fs.cpSync(sessionsSrc, sessionsDest, { recursive: true });
+        } catch (e) {
+          console.warn(`Sessions dir restore warning for ${accountId}:`, e);
         }
-        fs.cpSync(sessionsSrc, sessionsDest, { recursive: true });
+      }
+
+      // 3. Clear any stale lockfile
+      const lockfilePath = path.join(
+        process.env.LOCALAPPDATA || '',
+        'Riot Games',
+        'Riot Client',
+        'Config',
+        'lockfile'
+      );
+      if (fs.existsSync(lockfilePath)) {
+        try {
+          fs.unlinkSync(lockfilePath);
+        } catch {}
       }
 
       return true;

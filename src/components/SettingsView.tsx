@@ -221,6 +221,26 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <span>Minimize to System Tray when closing the window</span>
             </label>
 
+            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={formData.startMinimized}
+                onChange={(e) => setFormData({ ...formData, startMinimized: e.target.checked })}
+                style={{ accentColor: 'var(--riot-red)', width: '16px', height: '16px' }}
+              />
+              <span>Start application minimized to tray on launch</span>
+            </label>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={formData.soundEffects}
+                onChange={(e) => setFormData({ ...formData, soundEffects: e.target.checked })}
+                style={{ accentColor: 'var(--riot-red)', width: '16px', height: '16px' }}
+              />
+              <span>Enable audio feedback and launcher sound cues</span>
+            </label>
+
             <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginTop: '4px' }}>
               <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Color Theme:</span>
               <select

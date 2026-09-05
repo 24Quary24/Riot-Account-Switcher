@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, ShieldCheck, MoreVertical, Edit2, Trash2, Copy, Check, Gamepad2, Zap, Star, RotateCcw } from 'lucide-react';
+import { Play, ShieldCheck, MoreVertical, Edit2, Trash2, Copy, Check, Gamepad2, Zap, Star, RotateCcw, Info } from 'lucide-react';
 import { RiotAccount } from '../types';
 
 interface AccountCardProps {
@@ -7,6 +7,7 @@ interface AccountCardProps {
   onLaunch: (accountId: string, game: 'valorant' | 'league') => void;
   onEdit: (account: RiotAccount) => void;
   onDelete: (account: RiotAccount) => void;
+  onSelect?: (account: RiotAccount) => void;
   onToggleFavorite?: (account: RiotAccount) => void;
   onRefresh?: () => void;
   isLaunching?: boolean;
@@ -17,6 +18,7 @@ export const AccountCard: React.FC<AccountCardProps> = ({
   onLaunch,
   onEdit,
   onDelete,
+  onSelect,
   onToggleFavorite,
   onRefresh,
   isLaunching,
@@ -46,7 +48,12 @@ export const AccountCard: React.FC<AccountCardProps> = ({
   return (
     <div className="account-card" style={{ cursor: 'default', position: 'relative' }}>
       <div className="card-header">
-        <div className="card-avatar-wrap">
+        <div
+          className="card-avatar-wrap"
+          onClick={() => onSelect?.(account)}
+          style={{ cursor: onSelect ? 'pointer' : 'default' }}
+          title={onSelect ? 'Click to view account statistics and details' : undefined}
+        >
           <div className="card-avatar">
             {account.label.charAt(0).toUpperCase()}
             <span
@@ -135,6 +142,18 @@ export const AccountCard: React.FC<AccountCardProps> = ({
               }}
               onClick={(e) => e.stopPropagation()}
             >
+              {onSelect && (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  style={{ width: '100%', justifyContent: 'flex-start', border: 'none', background: 'transparent' }}
+                  onClick={() => {
+                    setShowMenu(false);
+                    onSelect(account);
+                  }}
+                >
+                  <Info size={13} /> View Stats & Details
+                </button>
+              )}
               <button
                 className="btn btn-secondary btn-sm"
                 style={{ width: '100%', justifyContent: 'flex-start', border: 'none', background: 'transparent' }}
@@ -235,6 +254,39 @@ export const AccountCard: React.FC<AccountCardProps> = ({
             {copiedUser ? <Check size={14} /> : <Copy size={13} />}
           </button>
         </div>
+
+        {/* Live Rank Badges if placed */}
+        {((account.valorantStats?.rank && account.valorantStats.rank !== 'Unranked') ||
+          (account.leagueStats?.soloRank && account.leagueStats.soloRank !== 'Unranked')) && (
+          <div
+            onClick={() => onSelect?.(account)}
+            style={{
+              display: 'flex',
+              gap: '6px',
+              flexWrap: 'wrap',
+              cursor: onSelect ? 'pointer' : 'default',
+            }}
+          >
+            {account.valorantStats?.rank && account.valorantStats.rank !== 'Unranked' && (
+              <span
+                className="stat-chip accent-red"
+                style={{ fontSize: '11px', padding: '2px 8px' }}
+                title={`Valorant Rank: ${account.valorantStats.rank} (${account.valorantStats.rankRating} RR)`}
+              >
+                VAL: {account.valorantStats.rank}
+              </span>
+            )}
+            {account.leagueStats?.soloRank && account.leagueStats.soloRank !== 'Unranked' && (
+              <span
+                className="stat-chip accent-gold"
+                style={{ fontSize: '11px', padding: '2px 8px' }}
+                title={`LoL Solo/Duo: ${account.leagueStats.soloRank} (${account.leagueStats.soloLp} LP)`}
+              >
+                LoL: {account.leagueStats.soloRank}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Game Mode & Last Active Meta */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-dim)' }}>

@@ -54,6 +54,12 @@ export class LauncherService {
   public async closeRunningClients(wipeSession: boolean = false): Promise<void> {
     if (process.platform !== 'win32') return;
 
+    const settings = this.storage.getSettings();
+    // Only terminate running processes if autoCloseClients is enabled, or if wiping session is strictly required
+    if (!settings.autoCloseClients && !wipeSession) {
+      return;
+    }
+
     // 1. Kill all processes including "Riot Client.exe"
     const processesToKill = [
       'Riot Client.exe',
@@ -175,9 +181,13 @@ export class LauncherService {
 
       if (process.platform === 'win32') {
         const waitSeconds = Math.max(4, Math.min(12, settings.launchDelaySeconds || 5));
-        onStatus?.(`Waiting ${waitSeconds}s for client to load, then clicking Play...`);
-        await new Promise((r) => setTimeout(r, waitSeconds * 1000));
-        await this.clickPlayButton(game, onStatus);
+        if (settings.autoLaunchGame) {
+          onStatus?.(`Waiting ${waitSeconds}s for client to load, then clicking Play...`);
+          await new Promise((r) => setTimeout(r, waitSeconds * 1000));
+          await this.clickPlayButton(game, onStatus);
+        } else {
+          onStatus?.('Ready in Riot Client! (Auto-launch game is disabled in Settings)');
+        }
       }
 
       account.lastPlayed = new Date().toISOString();
@@ -209,9 +219,13 @@ export class LauncherService {
 
         if (process.platform === 'win32') {
           const waitSeconds = Math.max(4, Math.min(12, settings.launchDelaySeconds || 5));
-          onStatus?.(`Client loading in background (${waitSeconds}s)...`);
-          await new Promise((r) => setTimeout(r, waitSeconds * 1000));
-          await this.clickPlayButton(game, onStatus);
+          if (settings.autoLaunchGame) {
+            onStatus?.(`Client loading in background (${waitSeconds}s)...`);
+            await new Promise((r) => setTimeout(r, waitSeconds * 1000));
+            await this.clickPlayButton(game, onStatus);
+          } else {
+            onStatus?.('Silently logged in! (Auto-launch game is disabled in Settings)');
+          }
         }
 
         account.lastPlayed = new Date().toISOString();
@@ -268,8 +282,12 @@ export class LauncherService {
           onStatus?.('Silent session saved! Future switches to this account will be 100% silent.');
         }
 
-        onStatus?.('Clicking Play button...');
-        await this.clickPlayButton(game, onStatus);
+        if (settings.autoLaunchGame) {
+          onStatus?.('Clicking Play button...');
+          await this.clickPlayButton(game, onStatus);
+        } else {
+          onStatus?.('Authentication complete! (Auto-launch game is disabled in Settings)');
+        }
       }
     }
 
@@ -317,6 +335,7 @@ public class RiotInputGuard {
 
     public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
+    [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
     [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
@@ -368,8 +387,9 @@ public class RiotInputGuard {
 
                 bool isRiotProc = name == "riot client" || name == "riotclientservices" || name.StartsWith("riotclient");
                 bool isRiotTitle = title.Contains("riot client");
+                bool isChromiumOrRiotClass = cls.StartsWith("Chrome_WidgetWin") || cls.ToLower().Contains("riot") || string.IsNullOrEmpty(cls);
 
-                if ((isRiotProc || isRiotTitle) && cls == "Chrome_WidgetWin_1") {
+                if ((isRiotProc || isRiotTitle) && isChromiumOrRiotClass) {
                     found = hWnd;
                     return false;
                 }
@@ -476,6 +496,17 @@ if (-not $userB64 -or -not $passB64) { exit 1 }
 $user = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($userB64))
 $password = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($passB64))
 
+# Enable Per-Monitor True DPI Awareness so window rects and coordinates align with physical pixels
+[RiotInputGuard]::SetProcessDPIAware() | Out-Null
+
+# Backup existing clipboard text so user's clipboard is preserved
+$prevClipboard = $null
+try {
+    if ([System.Windows.Forms.Clipboard]::ContainsText()) {
+        $prevClipboard = [System.Windows.Forms.Clipboard]::GetText()
+    }
+} catch {}
+
 # --- 1. Find Riot Client window ---
 $hwnd = [IntPtr]::Zero
 for ($i = 0; $i -lt 30; $i++) {
@@ -563,6 +594,13 @@ if ([RiotInputGuard]::IsForegroundRiot()) {
     [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
 }
 
+# Restore user's previous clipboard text so it is not permanently destroyed
+try {
+    if ($prevClipboard) {
+        [System.Windows.Forms.Clipboard]::SetText($prevClipboard)
+    }
+} catch {}
+
 Write-Output "SUCCESS"
 `;
 
@@ -627,6 +665,7 @@ public class RiotMouseGuard {
 
     public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
+    [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
     [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
@@ -676,8 +715,9 @@ public class RiotMouseGuard {
 
                 bool isRiotProc = name == "riot client" || name == "riotclientservices" || name.StartsWith("riotclient");
                 bool isRiotTitle = title.Contains("riot client");
+                bool isChromiumOrRiotClass = cls.StartsWith("Chrome_WidgetWin") || cls.ToLower().Contains("riot") || string.IsNullOrEmpty(cls);
 
-                if ((isRiotProc || isRiotTitle) && cls == "Chrome_WidgetWin_1") {
+                if ((isRiotProc || isRiotTitle) && isChromiumOrRiotClass) {
                     found = hWnd;
                     return false;
                 }
@@ -766,6 +806,9 @@ public class RiotMouseGuard {
     }
 }
 "@
+
+# Enable Per-Monitor True DPI Awareness so coordinates align with physical pixels
+[RiotMouseGuard]::SetProcessDPIAware() | Out-Null
 
 # 1. Find Riot Client window
 $hwnd = [IntPtr]::Zero

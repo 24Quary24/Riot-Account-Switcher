@@ -455,6 +455,7 @@ export const App: React.FC = () => {
                       setIsAddModalOpen(true);
                     }}
                     onDelete={handleDeleteAccount}
+                    onSelect={(acc) => setSelectedAccount(acc)}
                     onToggleFavorite={handleToggleFavorite}
                     onRefresh={loadData}
                     isLaunching={isLaunching}
@@ -484,6 +485,7 @@ export const App: React.FC = () => {
         account={selectedAccount}
         onClose={() => setSelectedAccount(null)}
         onLaunch={handleLaunchAccount}
+        onRefresh={loadData}
         isLaunching={isLaunching}
       />
 

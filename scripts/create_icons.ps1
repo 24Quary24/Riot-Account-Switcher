@@ -1,12 +1,31 @@
+param (
+    [string]$ImagePath = ""
+)
+
 Add-Type -AssemblyName System.Drawing
 
-$src = "C:\Users\Jamie\.gemini\antigravity-ide\brain\1ce3b3e4-2e5d-44a8-ba88-1fc1cb8656a5\riot_app_icon_1788262609931.jpg"
-if (-not (Test-Path $src)) {
-    Write-Error "Source image not found: $src"
+$src = $ImagePath
+if (-not $src -or -not (Test-Path $src)) {
+    $candidateSources = @(
+        "assets\icon-source.png",
+        "assets\icon-source.jpg",
+        "assets\icon.png"
+    )
+    foreach ($c in $candidateSources) {
+        if (Test-Path $c) {
+            $src = $c
+            break
+        }
+    }
+}
+
+if (-not $src -or -not (Test-Path $src)) {
+    Write-Error "Source image not found. Please provide an image path or place assets\icon-source.png."
     exit 1
 }
 
 New-Item -ItemType Directory -Force -Path "assets" | Out-Null
+
 
 $img = [System.Drawing.Image]::FromFile($src)
 

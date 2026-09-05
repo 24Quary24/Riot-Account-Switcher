@@ -18,3 +18,4 @@ yarn-error.log*
 Thumbs.db
 .DS_Store
 Desktop.ini
+*.lnk
