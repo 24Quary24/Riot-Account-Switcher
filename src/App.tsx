@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Titlebar } from './components/Titlebar';
-import { Navbar } from './components/Navbar';
+import { Navbar, FilterOption, SortOption } from './components/Navbar';
 import { AccountCard } from './components/AccountCard';
 import { AccountDetailModal } from './components/AccountDetailModal';
 import { AddEditAccountModal } from './components/AddEditAccountModal';
@@ -9,7 +9,7 @@ import { PingView } from './components/PingView';
 import { SettingsView } from './components/SettingsView';
 import { AboutView } from './components/AboutView';
 import { ToastContainer } from './components/ToastContainer';
-import { RiotAccount, AppSettings, GameType, ToastMessage, PingResult } from './types';
+import { RiotAccount, AppSettings, ToastMessage, PingResult } from './types';
 import { Users, LogOut } from 'lucide-react';
 
 const MOCK_INITIAL_ACCOUNTS: RiotAccount[] = [];
@@ -25,6 +25,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   startMinimized: false,
   theme: 'dark',
   soundEffects: true,
+  startOnBoot: false,
+  warnActiveGame: true,
 };
 
 export const App: React.FC = () => {
@@ -32,7 +34,9 @@ export const App: React.FC = () => {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [activeTab, setActiveTab] = useState<'accounts' | 'ping' | 'settings' | 'about'>('accounts');
   const [searchQuery, setSearchQuery] = useState('');
-  const [gameFilter, setGameFilter] = useState<GameType | 'all'>('all');
+  const [gameFilter, setGameFilter] = useState<FilterOption>('all');
+  const [sortBy, setSortBy] = useState<SortOption>('recent');
+  const [isRefreshingAll, setIsRefreshingAll] = useState(false);
 
   // Modals & Panels
   const [selectedAccount, setSelectedAccount] = useState<RiotAccount | null>(null);
@@ -44,7 +48,7 @@ export const App: React.FC = () => {
   const [isLaunching, setIsLaunching] = useState(false);
   const [launchStatus, setLaunchStatus] = useState('');
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
-  const [activeSession, setActiveSession] = useState<{ riotId: string; tagline: string; puuid: string; region?: any } | null>(null);
+  const [activeSession, setActiveSession] = useState<{ riotId: string; tagline: string; puuid: string; username?: string; region?: any } | null>(null);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const isElectron = typeof window !== 'undefined' && !!(window as any).riotManagerApi;
@@ -166,6 +170,23 @@ export const App: React.FC = () => {
   const handleLaunchAccount = async (accountId: string, game: 'valorant' | 'league') => {
     const target = accounts.find((a) => a.id === accountId);
     if (!target) return;
+
+    // In-Game Match Safety Guard
+    if (settings.warnActiveGame !== false && isElectron && api.checkGameRunning) {
+      try {
+        const gameStatus = await api.checkGameRunning();
+        if (gameStatus && gameStatus.isRunning) {
+          const proceed = window.confirm(
+            `⚠️ In-Game Match Safety Warning!\n\nA live ${gameStatus.gameName || 'Riot game'} match is currently running (${gameStatus.processName}). Switching accounts will terminate this match, resulting in an AFK penalty/dodge.\n\nAre you sure you want to proceed and switch accounts?`
+          );
+          if (!proceed) {
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('Game running check failed:', err);
+      }
+    }
 
     setIsLaunching(true);
     setLaunchStatus(`Preparing ${game.toUpperCase()} for ${target.label}...`);
@@ -313,6 +334,25 @@ export const App: React.FC = () => {
     }
   };
 
+  // Refresh All Accounts
+  const handleRefreshAll = async () => {
+    if (!isElectron) {
+      addToast('Refresh Simulated', 'Accounts refreshed in preview mode.', 'info');
+      return;
+    }
+    setIsRefreshingAll(true);
+    addToast('Refreshing All', 'Querying ranks and match stats for all accounts...', 'info');
+    try {
+      const updated = await api.refreshAllStats();
+      setAccounts(updated);
+      addToast('Refresh Complete', `Successfully updated live statistics for ${updated.length} accounts.`, 'success');
+    } catch (err: any) {
+      addToast('Refresh Failed', err.message || 'Could not refresh all account stats.', 'error');
+    } finally {
+      setIsRefreshingAll(false);
+    }
+  };
+
   // Ping Handler
   const handlePingRegions = async (): Promise<PingResult[]> => {
     if (isElectron) {
@@ -332,10 +372,59 @@ export const App: React.FC = () => {
     ];
   };
 
+  // Rank weight calculator for sorting
+  const getRankScore = (acc: RiotAccount): number => {
+    const valTier = ((acc.valorantStats?.rank || acc.valorantStats?.peakRank) || '').toLowerCase();
+    const lolTier = ((acc.leagueStats?.soloRank || acc.leagueStats?.flexRank) || '').toLowerCase();
+    const rankMap: Record<string, number> = {
+      radiant: 1000,
+      challenger: 950,
+      grandmaster: 900,
+      master: 850,
+      immortal: 800,
+      ascendant: 700,
+      diamond: 600,
+      emerald: 550,
+      platinum: 500,
+      gold: 400,
+      silver: 300,
+      bronze: 200,
+      iron: 100,
+    };
+    let score = 0;
+    for (const [tier, weight] of Object.entries(rankMap)) {
+      if (valTier.includes(tier) || lolTier.includes(tier)) {
+        score = Math.max(score, weight);
+      }
+    }
+    return score;
+  };
+
+  // Check if account is the currently active session in Riot Client
+  const isAccountActive = (acc: RiotAccount): boolean => {
+    if (!activeSession) return false;
+    if (acc.riotId && acc.tagline && activeSession.riotId && activeSession.tagline) {
+      if (
+        acc.riotId.toLowerCase() === activeSession.riotId.toLowerCase() &&
+        acc.tagline.toLowerCase() === activeSession.tagline.toLowerCase()
+      ) {
+        return true;
+      }
+    }
+    if (activeSession.username && acc.username) {
+      if (acc.username.toLowerCase() === activeSession.username.toLowerCase()) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   // Filtering & Sorting Accounts (Favorites always on top)
   const filteredAccounts = accounts
     .filter((acc) => {
-      if (gameFilter !== 'all') {
+      if (gameFilter === 'silent') {
+        if (!acc.hasSavedSession) return false;
+      } else if (gameFilter !== 'all') {
         if (acc.games !== 'both' && acc.games !== gameFilter) return false;
       }
       if (searchQuery.trim()) {
@@ -344,14 +433,30 @@ export const App: React.FC = () => {
         const matchUser = acc.username.toLowerCase().includes(q);
         const matchRiotId = (acc.riotId || '').toLowerCase().includes(q);
         const matchTag = (acc.tagline || '').toLowerCase().includes(q);
-        if (!matchLabel && !matchUser && !matchRiotId && !matchTag) return false;
+        const matchNotes = (acc.notes || '').toLowerCase().includes(q);
+        const matchCustomTag = (acc.tag || '').toLowerCase().includes(q);
+        if (!matchLabel && !matchUser && !matchRiotId && !matchTag && !matchNotes && !matchCustomTag) return false;
       }
       return true;
     })
     .sort((a, b) => {
       if (a.isFavorite && !b.isFavorite) return -1;
       if (!a.isFavorite && b.isFavorite) return 1;
-      return 0;
+
+      switch (sortBy) {
+        case 'name':
+          return a.label.localeCompare(b.label);
+        case 'rank':
+          return getRankScore(b) - getRankScore(a);
+        case 'region':
+          return a.region.localeCompare(b.region);
+        case 'recent':
+        default: {
+          const timeA = a.lastPlayed ? new Date(a.lastPlayed).getTime() : 0;
+          const timeB = b.lastPlayed ? new Date(b.lastPlayed).getTime() : 0;
+          return timeB - timeA;
+        }
+      }
     });
 
   return (
@@ -371,11 +476,15 @@ export const App: React.FC = () => {
         setSearchQuery={setSearchQuery}
         gameFilter={gameFilter}
         setGameFilter={setGameFilter}
+        sortBy={sortBy}
+        setSortBy={setSortBy}
         onOpenAddModal={() => {
           setEditingAccount(null);
           setIsAddModalOpen(true);
         }}
         onOpenVaultModal={() => setIsVaultModalOpen(true)}
+        onRefreshAll={handleRefreshAll}
+        isRefreshingAll={isRefreshingAll}
         onForceLogout={handleForceLogout}
         isLoggingOut={isLoggingOut}
       />
@@ -478,6 +587,7 @@ export const App: React.FC = () => {
                   <AccountCard
                     key={account.id}
                     account={account}
+                    isActive={isAccountActive(account)}
                     onLaunch={handleLaunchAccount}
                     onEdit={(acc) => {
                       setEditingAccount(acc);

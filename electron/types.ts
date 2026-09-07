@@ -86,6 +86,8 @@ export interface RiotAccount {
   leagueStats?: LeagueStats;
   hasSavedSession?: boolean;
   isFavorite?: boolean;
+  notes?: string;
+  tag?: string;
 }
 
 export interface AppSettings {
@@ -99,6 +101,8 @@ export interface AppSettings {
   startMinimized: boolean;
   theme: 'dark' | 'amoled' | 'light';
   soundEffects: boolean;
+  startOnBoot: boolean;
+  warnActiveGame: boolean;
 }
 
 export interface PingResult {

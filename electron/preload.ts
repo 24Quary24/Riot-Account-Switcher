@@ -16,12 +16,15 @@ export interface RiotManagerApi {
   minimizeWindow: () => void;
   maximizeWindow: () => void;
   closeWindow: () => void;
-  detectActiveSession: () => Promise<{ riotId: string; tagline: string; puuid: string; region?: Region } | null>;
+  detectActiveSession: () => Promise<{ riotId: string; tagline: string; puuid: string; username?: string; region?: Region } | null>;
   captureSession: (accountId: string) => Promise<boolean>;
   clearSession: (accountId: string) => Promise<boolean>;
   forceLogout: () => Promise<{ success: boolean; message: string }>;
   typeCredentials: (accountId: string) => Promise<{ success: boolean; message: string }>;
   validateRiotPath: (path: string) => Promise<boolean>;
+  autoDetectRiotPath: () => Promise<string | null>;
+  checkGameRunning: () => Promise<{ isRunning: boolean; gameName?: string; processName?: string }>;
+  refreshAllStats: () => Promise<RiotAccount[]>;
   onLaunchStatus: (callback: (status: string) => void) => () => void;
 }
 
@@ -32,11 +35,14 @@ const api: RiotManagerApi = {
   launchAccount: (accountId, game) => ipcRenderer.invoke('launcher:launch', accountId, game),
   typeCredentials: (accountId) => ipcRenderer.invoke('launcher:type-credentials', accountId),
   refreshAccountStats: (account) => ipcRenderer.invoke('riot:refresh-stats', account),
+  refreshAllStats: () => ipcRenderer.invoke('accounts:refresh-all'),
   detectActiveSession: () => ipcRenderer.invoke('riot:detect-current-session'),
   captureSession: (accountId) => ipcRenderer.invoke('session:capture', accountId),
   clearSession: (accountId) => ipcRenderer.invoke('session:clear', accountId),
   forceLogout: () => ipcRenderer.invoke('launcher:force-logout'),
+  checkGameRunning: () => ipcRenderer.invoke('launcher:check-game-running'),
   validateRiotPath: (path: string) => ipcRenderer.invoke('settings:validate-path', path),
+  autoDetectRiotPath: () => ipcRenderer.invoke('settings:auto-detect-path'),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
   selectRiotClientPath: () => ipcRenderer.invoke('settings:select-path'),

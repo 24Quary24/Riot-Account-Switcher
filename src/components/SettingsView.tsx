@@ -44,6 +44,26 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   };
 
+  const handleAutoDetectPath = async () => {
+    try {
+      if ((window as any).riotManagerApi?.autoDetectRiotPath) {
+        const detected = await (window as any).riotManagerApi.autoDetectRiotPath();
+        if (detected) {
+          setFormData(prev => ({
+            ...prev,
+            riotClientPath: detected,
+            customPathEnabled: false,
+          }));
+          onNotify('Path Detected', `Found Riot Client: ${detected}`, 'success');
+        } else {
+          onNotify('Not Found', 'Could not auto-detect Riot Client path.', 'error');
+        }
+      }
+    } catch {
+      onNotify('Error', 'Auto-detection failed.', 'error');
+    }
+  };
+
   const handleResetDefaultPath = () => {
     setFormData(prev => ({
       ...prev,
@@ -102,6 +122,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               onChange={(e) => setFormData({ ...formData, riotClientPath: e.target.value, customPathEnabled: true })}
               placeholder="C:\Riot Games\Riot Client\RiotClientServices.exe"
             />
+            <button type="button" className="btn btn-secondary" onClick={handleAutoDetectPath} title="Auto-detect from official RiotClientInstalls.json">
+              Auto-Detect
+            </button>
             <button type="button" className="btn btn-secondary" onClick={handleBrowsePath}>
               Browse...
             </button>
@@ -173,6 +196,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', cursor: 'pointer' }}>
               <input
                 type="checkbox"
+                checked={formData.warnActiveGame ?? true}
+                onChange={(e) => setFormData({ ...formData, warnActiveGame: e.target.checked })}
+                style={{ accentColor: 'var(--riot-red)', width: '16px', height: '16px' }}
+              />
+              <span>In-Game Match Safety Guard (warn before switching if Valorant or League match is running)</span>
+            </label>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
                 checked={formData.autoLaunchGame}
                 onChange={(e) => setFormData({ ...formData, autoLaunchGame: e.target.checked })}
                 style={{ accentColor: 'var(--riot-red)', width: '16px', height: '16px' }}
@@ -219,6 +252,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 style={{ accentColor: 'var(--riot-red)', width: '16px', height: '16px' }}
               />
               <span>Minimize to System Tray when closing the window</span>
+            </label>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={formData.startOnBoot ?? false}
+                onChange={(e) => setFormData({ ...formData, startOnBoot: e.target.checked })}
+                style={{ accentColor: 'var(--riot-red)', width: '16px', height: '16px' }}
+              />
+              <span>Start with Windows (automatically launch on PC boot)</span>
             </label>
 
             <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', cursor: 'pointer' }}>

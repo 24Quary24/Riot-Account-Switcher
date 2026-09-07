@@ -12,6 +12,7 @@ interface AccountCardProps {
   onRefresh?: () => void;
   onTypeCredentials?: (accountId: string) => void;
   isLaunching?: boolean;
+  isActive?: boolean;
 }
 
 export const AccountCard: React.FC<AccountCardProps> = ({
@@ -24,6 +25,7 @@ export const AccountCard: React.FC<AccountCardProps> = ({
   onRefresh,
   onTypeCredentials,
   isLaunching,
+  isActive,
 }) => {
   const [showMenu, setShowMenu] = useState(false);
   const [copiedUser, setCopiedUser] = useState(false);
@@ -40,15 +42,24 @@ export const AccountCard: React.FC<AccountCardProps> = ({
     const date = new Date(isoString);
     const now = new Date();
     const diffHours = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60));
-    if (diffHours < 1) return 'Played just now';
-    if (diffHours < 24) return `Played ${diffHours}h ago`;
+    if (diffHours < 1) return 'Just now';
+    if (diffHours < 24) return `${diffHours}h ago`;
     const diffDays = Math.floor(diffHours / 24);
-    if (diffDays === 1) return 'Played yesterday';
-    return `Played ${diffDays}d ago`;
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
   };
 
   return (
-    <div className="account-card" style={{ cursor: 'default', position: 'relative' }}>
+    <div
+      className={`account-card ${isActive ? 'active-client-card' : ''}`}
+      style={{
+        cursor: 'default',
+        position: 'relative',
+        borderColor: isActive ? 'var(--riot-teal)' : undefined,
+        boxShadow: isActive ? '0 0 16px rgba(0, 178, 169, 0.18)' : undefined,
+      }}
+    >
       <div className="card-header">
         <div
           className="card-avatar-wrap"
@@ -79,9 +90,9 @@ export const AccountCard: React.FC<AccountCardProps> = ({
                     border: 'none',
                     padding: '2px',
                     cursor: 'pointer',
-                    color: account.isFavorite ? '#fbbf24' : 'rgba(255,255,255,0.2)',
                     display: 'flex',
                     alignItems: 'center',
+                    color: account.isFavorite ? '#fbbf24' : 'var(--text-dim)',
                   }}
                   title={account.isFavorite ? 'Unpin account' : 'Pin account to top'}
                 >
@@ -96,6 +107,31 @@ export const AccountCard: React.FC<AccountCardProps> = ({
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', position: 'relative' }}>
+          {isActive && (
+            <span
+              className="stat-chip accent-teal"
+              style={{ padding: '2px 6px', fontSize: '10px', gap: '3px' }}
+              title="Currently active in Riot Client"
+            >
+              ● Active
+            </span>
+          )}
+          {account.tag && (
+            <span
+              className="stat-chip"
+              style={{
+                padding: '2px 6px',
+                fontSize: '10px',
+                gap: '3px',
+                background: 'rgba(99, 102, 241, 0.12)',
+                borderColor: 'rgba(99, 102, 241, 0.3)',
+                color: '#818cf8',
+              }}
+              title={`Tag: ${account.tag}`}
+            >
+              {account.tag}
+            </span>
+          )}
           {account.hasSavedSession && (
             <span
               className="stat-chip accent-gold"

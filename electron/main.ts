@@ -113,29 +113,48 @@ function updateTrayMenu() {
   if (!tray) return;
 
   const accounts = storageService.getAccounts();
-  const accountMenuItems: Electron.MenuItemConstructorOptions[] = accounts.map((acc) => ({
-    label: `${acc.label} (${acc.region})`,
-    submenu: [
-      {
-        label: `Play Valorant`,
-        enabled: acc.games === 'valorant' || acc.games === 'both',
-        click: () => {
-          launcherService.launchAccount(acc.id, 'valorant');
+  const activeDiskAccount = storageService.getActiveSessionAccount();
+
+  const accountMenuItems: Electron.MenuItemConstructorOptions[] = accounts.map((acc) => {
+    const isActive =
+      activeDiskAccount &&
+      (activeDiskAccount.id === acc.id ||
+        (activeDiskAccount.username && acc.username && activeDiskAccount.username.toLowerCase() === acc.username.toLowerCase()));
+    const isSilent = acc.hasSavedSession;
+    const prefix = isActive ? '● [ACTIVE] ' : isSilent ? '⚡ ' : '';
+
+    return {
+      label: `${prefix}${acc.label} (${acc.region})`,
+      submenu: [
+        {
+          label: `Play Valorant`,
+          enabled: acc.games === 'valorant' || acc.games === 'both',
+          click: () => {
+            launcherService.launchAccount(acc.id, 'valorant');
+          },
         },
-      },
-      {
-        label: `Play League of Legends`,
-        enabled: acc.games === 'league' || acc.games === 'both',
-        click: () => {
-          launcherService.launchAccount(acc.id, 'league');
+        {
+          label: `Play League of Legends`,
+          enabled: acc.games === 'league' || acc.games === 'both',
+          click: () => {
+            launcherService.launchAccount(acc.id, 'league');
+          },
         },
-      },
-    ],
-  }));
+      ],
+    };
+  });
+
+  const activeLabel = activeDiskAccount
+    ? `Active: ${activeDiskAccount.riotId || activeDiskAccount.username} (${activeDiskAccount.tagline || 'Live'})`
+    : 'Active: None (Logged Out)';
 
   const contextMenu = Menu.buildFromTemplate([
     {
       label: 'Riot Account Switcher',
+      enabled: false,
+    },
+    {
+      label: activeLabel,
       enabled: false,
     },
     { type: 'separator' },
@@ -366,7 +385,22 @@ function setupIpcHandlers() {
     if (!settings || typeof settings !== 'object') {
       throw new Error('Invalid settings object');
     }
-    return storageService.saveSettings(settings);
+
+    if (settings.startOnBoot !== undefined) {
+      try {
+        app.setLoginItemSettings({
+          openAtLogin: Boolean(settings.startOnBoot),
+          openAsHidden: true,
+          name: 'Riot Account Switcher',
+        });
+      } catch (err) {
+        console.warn('Could not update Windows login item settings:', err);
+      }
+    }
+
+    const saved = storageService.saveSettings(settings);
+    updateTrayMenu();
+    return saved;
   });
 
   ipcMain.handle('settings:validate-path', (_event, testPath: string) => {
@@ -376,6 +410,30 @@ function setupIpcHandlers() {
     } catch {
       return false;
     }
+  });
+
+  ipcMain.handle('settings:auto-detect-path', () => {
+    return launcherService.findRiotClientPath();
+  });
+
+  ipcMain.handle('launcher:check-game-running', async () => {
+    return launcherService.isGameProcessRunning();
+  });
+
+  ipcMain.handle('accounts:refresh-all', async () => {
+    const accounts = storageService.getAccounts();
+    const updated: RiotAccount[] = [];
+    for (const acc of accounts) {
+      try {
+        const stats = await riotApiService.fetchAccountStats(acc);
+        if (stats.valorantStats) acc.valorantStats = { ...(acc.valorantStats || {}), ...stats.valorantStats };
+        if (stats.leagueStats) acc.leagueStats = { ...(acc.leagueStats || {}), ...stats.leagueStats };
+      } catch {}
+      updated.push(acc);
+    }
+    storageService.saveAccounts(updated);
+    updateTrayMenu();
+    return updated;
   });
 
   ipcMain.handle('settings:select-path', async () => {
@@ -465,6 +523,7 @@ app.whenReady().then(() => {
           storageService.saveAccountSession(match.id);
         }
       }
+      updateTrayMenu();
     } catch {}
   }, 10000);
 

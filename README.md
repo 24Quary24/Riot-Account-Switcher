@@ -51,11 +51,25 @@ Riot Account Switcher eliminates the manual login/logout cycle for players with 
 - Auto-detects 2FA authentication state and displays a verification reminder badge.
 - When logging in, the launcher actively watches for 2FA completion in Riot Client and automatically captures the session for future silent launches.
 
+### In-Game Match Safety Guard
+- Monitors for active matches (`VALORANT.exe`, `VALORANT-Win64-Shipping.exe`, `League of Legends.exe`).
+- Warns with a confirmation prompt before switching to prevent accidental ranked AFK penalties or match dodges.
+
+### Automatic Client Discovery
+- Seamlessly resolves Riot Client, Valorant, and League of Legends paths across custom drive letters (D:, E:, etc.) using the official `RiotClientInstalls.json` configuration.
+
+### Roster Sorting, Tagging & Quick Filters
+- Sort accounts by Recently Played, Rank Tier (Radiant down to Iron), Region, or Name.
+- Quick filter to view only **⚡ Silent Ready** profiles.
+- Assign custom category tags (e.g. *Main*, *Smurf*, *Duo*) and private notes to any account.
+- **● Active Session Glow**: Real-time indicator displaying which account is currently logged into the local Riot Client.
+
 ### Regional Ping Monitor
 - Live round-trip latency checks across 9 Riot server regions (NA, EUW, EUNE, KR, AP, BR, LAN, LAS, OCE).
 
-### System Tray
-- Minimize to the Windows system tray. The app stays running in the background until you need to switch accounts.
+### System Tray & Startup
+- Minimize to Windows system tray with active status indicators (`● [ACTIVE]`) and quick launch directly from the taskbar context menu.
+- Optional "Start with Windows" configuration.
 
 ---
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Eye, EyeOff, ShieldCheck, Key, User, Tag, Globe, Gamepad2 } from 'lucide-react';
+import { X, Eye, EyeOff, ShieldCheck, Key, User, Tag, Globe, Gamepad2, Zap } from 'lucide-react';
 import { RiotAccount, Region, GameType } from '../types';
 
 interface AddEditAccountModalProps {
@@ -36,6 +36,7 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
   const [region, setRegion] = useState<Region>('EUW');
   const [games, setGames] = useState<GameType>('both');
   const [has2fa, setHas2fa] = useState(false);
+  const [tag, setTag] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -50,6 +51,7 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
       setRegion(editingAccount.region);
       setGames(editingAccount.games);
       setHas2fa(editingAccount.has2fa || false);
+      setTag(editingAccount.tag || '');
     } else {
       setLabel('');
       setUsername('');
@@ -59,10 +61,31 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
       setRegion('EUW');
       setGames('both');
       setHas2fa(false);
+      setTag('');
     }
     setErrorMsg('');
     setShowPassword(false);
   }, [editingAccount, isOpen]);
+
+  const handleAutoFillFromSession = async () => {
+    try {
+      if ((window as any).riotManagerApi?.detectActiveSession) {
+        const session = await (window as any).riotManagerApi.detectActiveSession();
+        if (session) {
+          if (session.riotId) setRiotId(session.riotId);
+          if (session.tagline) setTagline(session.tagline);
+          if (session.username && !username) setUsername(session.username);
+          if (session.region) setRegion(session.region);
+          if (!label) setLabel(session.riotId || session.username || 'Active Account');
+          if (session.has2fa) setHas2fa(true);
+        } else {
+          setErrorMsg('No active Riot Client session detected on disk or live.');
+        }
+      }
+    } catch {
+      setErrorMsg('Could not read active session from Riot Client.');
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -92,6 +115,7 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
         riotId: finalRiotId,
         tagline: finalTagline,
         has2fa,
+        tag: tag.trim() || undefined,
         isFavorite: editingAccount?.isFavorite || false,
         createdAt: editingAccount ? editingAccount.createdAt : new Date().toISOString(),
       };
@@ -119,6 +143,28 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
           </div>
           <button type="button" className="btn btn-secondary btn-icon btn-sm" onClick={onClose}>
             <X size={16} />
+          </button>
+        </div>
+
+        <div style={{ padding: '12px 20px 0 20px' }}>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={handleAutoFillFromSession}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              fontSize: '11px',
+              color: 'var(--riot-teal)',
+              background: 'rgba(0, 178, 169, 0.08)',
+              borderColor: 'rgba(0, 178, 169, 0.3)',
+            }}
+          >
+            <Zap size={13} />
+            Auto-Fill from Active Riot Session
           </button>
         </div>
 
@@ -227,6 +273,21 @@ export const AddEditAccountModal: React.FC<AddEditAccountModalProps> = ({
                   onChange={(e) => setTagline(e.target.value.replace(/^#/, ''))}
                 />
               </div>
+            </div>
+
+            {/* Custom Tag / Category */}
+            <div className="form-group">
+              <label className="form-label">
+                <Tag size={12} style={{ display: 'inline', marginRight: '4px' }} />
+                Account Tag / Category (Optional)
+              </label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="e.g. Main, Smurf, Duo, Warmup, PBE"
+                value={tag}
+                onChange={(e) => setTag(e.target.value)}
+              />
             </div>
 
             {/* 2FA toggle */}

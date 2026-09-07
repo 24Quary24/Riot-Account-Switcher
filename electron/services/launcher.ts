@@ -16,7 +16,10 @@ export class LauncherService {
   }
 
   /**
-   * Find Riot Client executable path. Checks settings, default path, and alternate drive letters.
+   * Find Riot Client executable path.
+   * 1. Checks user settings (if custom path configured & valid).
+   * 2. Checks official RiotClientInstalls.json in ProgramData (100% accurate across all drive letters).
+   * 3. Falls back to standard drive letters and directory candidates.
    */
   public findRiotClientPath(): string {
     const settings = this.storage.getSettings();
@@ -24,10 +27,25 @@ export class LauncherService {
       return settings.riotClientPath;
     }
 
+    // 1. Check official RiotClientInstalls.json in ProgramData (100% accurate across all drive letters)
+    try {
+      const installsJson = path.join(process.env.ProgramData || 'C:\\ProgramData', 'Riot Games', 'RiotClientInstalls.json');
+      if (fs.existsSync(installsJson)) {
+        const raw = fs.readFileSync(installsJson, 'utf-8');
+        const parsed = JSON.parse(raw);
+        const resolved = parsed.rc_live || parsed.rc_default;
+        if (resolved && fs.existsSync(resolved)) {
+          return path.normalize(resolved);
+        }
+      }
+    } catch {}
+
+    // 2. Candidate drive letters and default installations
     const candidatePaths = [
       'C:\\Riot Games\\Riot Client\\RiotClientServices.exe',
       'D:\\Riot Games\\Riot Client\\RiotClientServices.exe',
       'E:\\Riot Games\\Riot Client\\RiotClientServices.exe',
+      'F:\\Riot Games\\Riot Client\\RiotClientServices.exe',
       'C:\\Program Files\\Riot Games\\Riot Client\\RiotClientServices.exe',
       'C:\\Program Files (x86)\\Riot Games\\Riot Client\\RiotClientServices.exe',
     ];
@@ -38,7 +56,43 @@ export class LauncherService {
       }
     }
 
-    return settings.riotClientPath;
+    return settings.riotClientPath || 'C:\\Riot Games\\Riot Client\\RiotClientServices.exe';
+  }
+
+  /**
+   * Checks if an active match process (VALORANT or League) is currently executing.
+   */
+  public async isGameProcessRunning(): Promise<{ isRunning: boolean; gameName?: 'VALORANT' | 'League of Legends'; processName?: string }> {
+    if (process.platform !== 'win32') return { isRunning: false };
+
+    const gameProcesses = [
+      { proc: 'VALORANT-Win64-Shipping.exe', name: 'VALORANT' as const },
+      { proc: 'VALORANT.exe', name: 'VALORANT' as const },
+      { proc: 'League of Legends.exe', name: 'League of Legends' as const },
+    ];
+
+    return new Promise((resolve) => {
+      const ps = spawn('powershell.exe', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        'Get-Process -ErrorAction SilentlyContinue | Select-Object -ExpandProperty ProcessName'
+      ], { windowsHide: true });
+
+      let output = '';
+      ps.stdout.on('data', (d) => { output += d.toString(); });
+      ps.on('close', () => {
+        const lower = output.toLowerCase();
+        for (const item of gameProcesses) {
+          const base = item.proc.replace('.exe', '').toLowerCase();
+          if (lower.includes(base)) {
+            return resolve({ isRunning: true, gameName: item.name, processName: item.proc });
+          }
+        }
+        resolve({ isRunning: false });
+      });
+      ps.on('error', () => resolve({ isRunning: false }));
+    });
   }
 
   /**

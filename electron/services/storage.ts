@@ -20,6 +20,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   startMinimized: false,
   theme: 'dark',
   soundEffects: true,
+  startOnBoot: false,
+  warnActiveGame: true,
 };
 
 export class StorageService {

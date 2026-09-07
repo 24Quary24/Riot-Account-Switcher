@@ -1,16 +1,23 @@
 import React from 'react';
-import { Users, Globe, Settings, HelpCircle, Plus, Search, ShieldCheck, LogOut } from 'lucide-react';
+import { Users, Globe, Settings, HelpCircle, Plus, Search, ShieldCheck, LogOut, RefreshCw, ArrowUpDown } from 'lucide-react';
 import { GameType } from '../types';
+
+export type SortOption = 'recent' | 'name' | 'rank' | 'region';
+export type FilterOption = GameType | 'all' | 'silent';
 
 interface NavbarProps {
   activeTab: 'accounts' | 'ping' | 'settings' | 'about';
   setActiveTab: (tab: 'accounts' | 'ping' | 'settings' | 'about') => void;
   searchQuery: string;
   setSearchQuery: (query: string) => void;
-  gameFilter: GameType | 'all';
-  setGameFilter: (filter: GameType | 'all') => void;
+  gameFilter: FilterOption;
+  setGameFilter: (filter: FilterOption) => void;
+  sortBy: SortOption;
+  setSortBy: (sort: SortOption) => void;
   onOpenAddModal: () => void;
   onOpenVaultModal: () => void;
+  onRefreshAll?: () => void;
+  isRefreshingAll?: boolean;
   onForceLogout?: () => void;
   isLoggingOut?: boolean;
 }
@@ -22,8 +29,12 @@ export const Navbar: React.FC<NavbarProps> = ({
   setSearchQuery,
   gameFilter,
   setGameFilter,
+  sortBy,
+  setSortBy,
   onOpenAddModal,
   onOpenVaultModal,
+  onRefreshAll,
+  isRefreshingAll,
   onForceLogout,
   isLoggingOut,
 }) => {
@@ -67,12 +78,23 @@ export const Navbar: React.FC<NavbarProps> = ({
               <Search size={14} />
               <input
                 type="text"
-                placeholder="Search accounts or Riot ID..."
+                placeholder="Search accounts, tags, or Riot ID..."
                 className="search-input"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
+          )}
+
+          {activeTab === 'accounts' && onRefreshAll && (
+            <button
+              className="btn btn-secondary btn-icon"
+              onClick={onRefreshAll}
+              disabled={isRefreshingAll}
+              title="Refresh Ranks & Stats for All Accounts"
+            >
+              <RefreshCw size={15} style={{ animation: isRefreshingAll ? 'spin 1s linear infinite' : 'none' }} />
+            </button>
           )}
 
           <button
@@ -100,6 +122,13 @@ export const Navbar: React.FC<NavbarProps> = ({
               All Accounts
             </button>
             <button
+              className={`pill-btn ${gameFilter === 'silent' ? 'active' : ''}`}
+              onClick={() => setGameFilter('silent')}
+              style={{ color: gameFilter === 'silent' ? '#fbbf24' : undefined }}
+            >
+              ⚡ Silent Ready
+            </button>
+            <button
               className={`pill-btn ${gameFilter === 'valorant' ? 'active' : ''}`}
               onClick={() => setGameFilter('valorant')}
             >
@@ -120,6 +149,31 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <ArrowUpDown size={13} color="var(--text-muted)" />
+              <select
+                className="form-select"
+                style={{
+                  fontSize: '11px',
+                  padding: '3px 8px',
+                  height: '28px',
+                  background: 'rgba(255,255,255,0.04)',
+                  borderColor: 'var(--border-subtle)',
+                  borderRadius: '4px',
+                  color: 'var(--text-main)',
+                  cursor: 'pointer',
+                }}
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as SortOption)}
+                title="Sort Accounts"
+              >
+                <option value="recent">Recently Played</option>
+                <option value="name">Name (A–Z)</option>
+                <option value="rank">Highest Rank</option>
+                <option value="region">Region</option>
+              </select>
+            </div>
+
             {onForceLogout && (
               <button
                 className="btn btn-secondary btn-sm"
@@ -141,9 +195,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                 {isLoggingOut ? 'Logging out...' : 'Log Out Client'}
               </button>
             )}
-            <div style={{ fontSize: '12px', color: 'var(--text-dim)' }}>
-              Shortcut: <kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '2px 6px', borderRadius: '4px' }}>Ctrl + N</kbd> to add account
-            </div>
           </div>
         </div>
       )}
