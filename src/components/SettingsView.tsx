@@ -231,6 +231,45 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 Seconds to wait for Riot Client to open before automated keystroke credential injection.
               </span>
             </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Game Audio / Client Locale:</span>
+                <select
+                  className="form-select"
+                  style={{ width: '220px' }}
+                  value={formData.gameLocale || 'default'}
+                  onChange={(e) => setFormData({ ...formData, gameLocale: e.target.value })}
+                >
+                  <option value="default">Default (System / Riot Client)</option>
+                  <option value="en_US">English (en_US)</option>
+                  <option value="ja_JP">Japanese (ja_JP - Voice & Text)</option>
+                  <option value="ko_KR">Korean (ko_KR - Voice & Text)</option>
+                  <option value="es_ES">Spanish (es_ES)</option>
+                  <option value="de_DE">German (de_DE)</option>
+                  <option value="fr_FR">French (fr_FR)</option>
+                  <option value="pl_PL">Polish (pl_PL)</option>
+                  <option value="tr_TR">Turkish (tr_TR)</option>
+                </select>
+              </div>
+              <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
+                Overrides Riot Client language via --locale argument (great for playing with Japanese/Korean voices).
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px' }}>
+              <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Custom Launch Arguments (Optional):</span>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="--disable-voice"
+                value={formData.customLaunchArgs || ''}
+                onChange={(e) => setFormData({ ...formData, customLaunchArgs: e.target.value })}
+              />
+              <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
+                Extra command-line flags forwarded directly to Riot Client on launch.
+              </span>
+            </div>
           </div>
         </div>
 

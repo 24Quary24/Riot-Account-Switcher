@@ -103,6 +103,8 @@ export interface AppSettings {
   soundEffects: boolean;
   startOnBoot: boolean;
   warnActiveGame: boolean;
+  customLaunchArgs?: string;
+  gameLocale?: string;
 }
 
 export interface PingResult {

@@ -22,6 +22,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   soundEffects: true,
   startOnBoot: false,
   warnActiveGame: true,
+  customLaunchArgs: '',
+  gameLocale: 'default',
 };
 
 export class StorageService {

@@ -1,18 +1,21 @@
 import React, { useState } from 'react';
-import { Play, ShieldCheck, MoreVertical, Edit2, Trash2, Copy, Check, Gamepad2, Zap, Star, RotateCcw, Info, Keyboard } from 'lucide-react';
+import { Play, ShieldCheck, MoreVertical, Edit2, Trash2, Copy, Check, Gamepad2, Zap, Star, RotateCcw, Info, Keyboard, Monitor, ExternalLink, KeyRound } from 'lucide-react';
 import { RiotAccount } from '../types';
+import { sound } from '../services/sound';
 
 interface AccountCardProps {
   account: RiotAccount;
-  onLaunch: (accountId: string, game: 'valorant' | 'league') => void;
+  onLaunch: (accountId: string, game: 'valorant' | 'league' | 'client') => void;
   onEdit: (account: RiotAccount) => void;
   onDelete: (account: RiotAccount) => void;
   onSelect?: (account: RiotAccount) => void;
   onToggleFavorite?: (account: RiotAccount) => void;
   onRefresh?: () => void;
   onTypeCredentials?: (accountId: string) => void;
+  onNotify?: (title: string, desc: string, type: 'success' | 'error' | 'info') => void;
   isLaunching?: boolean;
   isActive?: boolean;
+  shortcutIndex?: number;
 }
 
 export const AccountCard: React.FC<AccountCardProps> = ({
@@ -24,17 +27,89 @@ export const AccountCard: React.FC<AccountCardProps> = ({
   onToggleFavorite,
   onRefresh,
   onTypeCredentials,
+  onNotify,
   isLaunching,
   isActive,
+  shortcutIndex,
 }) => {
   const [showMenu, setShowMenu] = useState(false);
   const [copiedUser, setCopiedUser] = useState(false);
+  const [copiedPass, setCopiedPass] = useState(false);
+  const [copiedRiotId, setCopiedRiotId] = useState(false);
 
   const handleCopyUsername = (e: React.MouseEvent) => {
     e.stopPropagation();
+    sound.playClick();
     navigator.clipboard.writeText(account.username);
     setCopiedUser(true);
+    sound.playSuccess();
+    onNotify?.('Username Copied', `Copied "${account.username}" to clipboard.`, 'info');
     setTimeout(() => setCopiedUser(false), 2000);
+  };
+
+  const handleCopyRiotId = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    sound.playClick();
+    const riotIdStr = account.riotId ? `${account.riotId}#${account.tagline || account.region}` : account.username;
+    navigator.clipboard.writeText(riotIdStr);
+    setCopiedRiotId(true);
+    sound.playSuccess();
+    onNotify?.('Riot ID Copied', `Copied "${riotIdStr}" to clipboard.`, 'info');
+    setTimeout(() => setCopiedRiotId(false), 2000);
+  };
+
+  const handleCopyPassword = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    sound.playClick();
+    const api = (window as any).riotManagerApi;
+    if (api?.getPassword) {
+      const pass = await api.getPassword(account.username);
+      if (pass) {
+        navigator.clipboard.writeText(pass);
+        setCopiedPass(true);
+        sound.playSuccess();
+        onNotify?.('Password Copied', 'Password copied to clipboard. Auto-clearing in 30s.', 'info');
+        setTimeout(() => {
+          setCopiedPass(false);
+          navigator.clipboard.readText().then((txt) => {
+            if (txt === pass) {
+              navigator.clipboard.writeText('');
+            }
+          }).catch(() => {});
+        }, 30000);
+      } else {
+        onNotify?.('Password Not Found', 'Could not retrieve password.', 'error');
+      }
+    }
+  };
+
+  const handleOpenTracker = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowMenu(false);
+    sound.playClick();
+    if (!account.riotId) return;
+    const tag = account.tagline || account.region;
+    const url = `https://tracker.gg/valorant/profile/riot/${encodeURIComponent(account.riotId)}%23${encodeURIComponent(tag)}/overview`;
+    if ((window as any).riotManagerApi?.openExternal) {
+      (window as any).riotManagerApi.openExternal(url);
+    } else {
+      window.open(url, '_blank');
+    }
+  };
+
+  const handleOpenOpGg = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowMenu(false);
+    sound.playClick();
+    if (!account.riotId) return;
+    const tag = account.tagline || account.region;
+    const reg = account.region.toLowerCase();
+    const url = `https://www.op.gg/summoners/${reg}/${encodeURIComponent(account.riotId)}-${encodeURIComponent(tag)}`;
+    if ((window as any).riotManagerApi?.openExternal) {
+      (window as any).riotManagerApi.openExternal(url);
+    } else {
+      window.open(url, '_blank');
+    }
   };
 
   const formatLastPlayed = (isoString?: string) => {
@@ -60,6 +135,27 @@ export const AccountCard: React.FC<AccountCardProps> = ({
         boxShadow: isActive ? '0 0 16px rgba(0, 178, 169, 0.18)' : undefined,
       }}
     >
+      {shortcutIndex !== undefined && shortcutIndex < 9 && (
+        <span
+          style={{
+            position: 'absolute',
+            top: '6px',
+            right: '8px',
+            fontSize: '9px',
+            fontWeight: 800,
+            color: 'rgba(255, 255, 255, 0.28)',
+            background: 'rgba(255, 255, 255, 0.05)',
+            padding: '1px 5px',
+            borderRadius: '3px',
+            letterSpacing: '0.04em',
+            pointerEvents: 'none',
+            zIndex: 10,
+          }}
+          title={`Keyboard shortcut: Ctrl+${shortcutIndex + 1}`}
+        >
+          Ctrl+{shortcutIndex + 1}
+        </span>
+      )}
       <div className="card-header">
         <div
           className="card-avatar-wrap"
@@ -227,12 +323,25 @@ export const AccountCard: React.FC<AccountCardProps> = ({
               >
                 <Zap size={13} /> Save Session
               </button>
+              <button
+                className="btn btn-secondary btn-sm"
+                style={{ width: '100%', justifyContent: 'flex-start', border: 'none', background: 'transparent' }}
+                onClick={() => {
+                  setShowMenu(false);
+                  sound.playClick();
+                  onLaunch(account.id, 'client');
+                }}
+                title="Switch login in Riot Client without launching any game"
+              >
+                <Monitor size={13} /> Open Riot Client Only
+              </button>
               {account.hasSavedSession && (
                 <button
                   className="btn btn-secondary btn-sm"
                   style={{ width: '100%', justifyContent: 'flex-start', border: 'none', background: 'transparent', color: '#fb923c' }}
                   onClick={async () => {
                     setShowMenu(false);
+                    sound.playClick();
                     await (window as any).riotManagerApi?.clearSession(account.id);
                     onRefresh?.();
                   }}
@@ -249,8 +358,52 @@ export const AccountCard: React.FC<AccountCardProps> = ({
                   handleCopyUsername(e);
                 }}
               >
-                <Copy size={13} /> Copy Username
+                {copiedUser ? <Check size={13} color="var(--riot-teal)" /> : <Copy size={13} />}
+                {copiedUser ? 'Username Copied!' : 'Copy Username'}
               </button>
+              <button
+                className="btn btn-secondary btn-sm"
+                style={{ width: '100%', justifyContent: 'flex-start', border: 'none', background: 'transparent' }}
+                onClick={(e) => {
+                  setShowMenu(false);
+                  handleCopyRiotId(e);
+                }}
+              >
+                {copiedRiotId ? <Check size={13} color="var(--riot-teal)" /> : <Copy size={13} />}
+                {copiedRiotId ? 'Riot ID Copied!' : 'Copy Riot ID (Name#Tag)'}
+              </button>
+              <button
+                className="btn btn-secondary btn-sm"
+                style={{ width: '100%', justifyContent: 'flex-start', border: 'none', background: 'transparent' }}
+                onClick={(e) => {
+                  setShowMenu(false);
+                  handleCopyPassword(e);
+                }}
+                title="Copy encrypted password to clipboard (auto-clears in 30s)"
+              >
+                {copiedPass ? <Check size={13} color="var(--riot-teal)" /> : <KeyRound size={13} />}
+                {copiedPass ? 'Password Copied!' : 'Copy Password'}
+              </button>
+              {account.riotId && (account.games === 'valorant' || account.games === 'both') && (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  style={{ width: '100%', justifyContent: 'flex-start', border: 'none', background: 'transparent' }}
+                  onClick={handleOpenTracker}
+                  title="Open live career statistics on Tracker.gg"
+                >
+                  <ExternalLink size={13} /> Open on Tracker.gg
+                </button>
+              )}
+              {account.riotId && (account.games === 'league' || account.games === 'both') && (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  style={{ width: '100%', justifyContent: 'flex-start', border: 'none', background: 'transparent' }}
+                  onClick={handleOpenOpGg}
+                  title="Open Summoner match history and rank on OP.GG"
+                >
+                  <ExternalLink size={13} /> Open on OP.GG
+                </button>
+              )}
               <button
                 className="btn btn-secondary btn-sm"
                 style={{
@@ -262,6 +415,7 @@ export const AccountCard: React.FC<AccountCardProps> = ({
                 }}
                 onClick={() => {
                   setShowMenu(false);
+                  sound.playClick();
                   onDelete(account);
                 }}
               >
@@ -353,11 +507,14 @@ export const AccountCard: React.FC<AccountCardProps> = ({
         </div>
       </div>
 
-      <div className="card-footer" style={{ marginTop: '4px' }}>
+      <div className="card-footer" style={{ marginTop: '4px', display: 'flex', gap: '6px' }}>
         {(account.games === 'valorant' || account.games === 'both') && (
           <button
             className="btn btn-primary btn-play-game"
-            onClick={() => onLaunch(account.id, 'valorant')}
+            onClick={() => {
+              sound.playClick();
+              onLaunch(account.id, 'valorant');
+            }}
             disabled={isLaunching}
             title="Switch account & Launch Valorant"
             style={{ flex: 1 }}
@@ -370,7 +527,10 @@ export const AccountCard: React.FC<AccountCardProps> = ({
         {(account.games === 'league' || account.games === 'both') && (
           <button
             className="btn btn-teal btn-play-game"
-            onClick={() => onLaunch(account.id, 'league')}
+            onClick={() => {
+              sound.playClick();
+              onLaunch(account.id, 'league');
+            }}
             disabled={isLaunching}
             title="Switch account & Launch League of Legends"
             style={{ flex: 1 }}
@@ -379,6 +539,19 @@ export const AccountCard: React.FC<AccountCardProps> = ({
             Play League
           </button>
         )}
+
+        <button
+          className="btn btn-secondary btn-icon"
+          onClick={() => {
+            sound.playClick();
+            onLaunch(account.id, 'client');
+          }}
+          disabled={isLaunching}
+          title="Switch login in Riot Client without launching a game"
+          style={{ width: '36px', height: '36px', flexShrink: 0 }}
+        >
+          <Monitor size={14} />
+        </button>
       </div>
     </div>
   );

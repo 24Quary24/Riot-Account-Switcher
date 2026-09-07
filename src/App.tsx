@@ -10,7 +10,8 @@ import { SettingsView } from './components/SettingsView';
 import { AboutView } from './components/AboutView';
 import { ToastContainer } from './components/ToastContainer';
 import { RiotAccount, AppSettings, ToastMessage, PingResult } from './types';
-import { Users, LogOut } from 'lucide-react';
+import { sound } from './services/sound';
+import { Users, LogOut, Download, Sparkles, AlertCircle, ExternalLink } from 'lucide-react';
 
 const MOCK_INITIAL_ACCOUNTS: RiotAccount[] = [];
 
@@ -27,6 +28,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   soundEffects: true,
   startOnBoot: false,
   warnActiveGame: true,
+  customLaunchArgs: '',
+  gameLocale: 'default',
 };
 
 export const App: React.FC = () => {
@@ -37,6 +40,7 @@ export const App: React.FC = () => {
   const [gameFilter, setGameFilter] = useState<FilterOption>('all');
   const [sortBy, setSortBy] = useState<SortOption>('recent');
   const [isRefreshingAll, setIsRefreshingAll] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState<{ tag: string; url: string } | null>(null);
 
   // Modals & Panels
   const [selectedAccount, setSelectedAccount] = useState<RiotAccount | null>(null);
@@ -141,20 +145,51 @@ export const App: React.FC = () => {
     };
   }, [loadData, checkActiveSession, isElectron, api]);
 
+  useEffect(() => {
+    sound.setEnabled(settings.soundEffects !== false);
+  }, [settings.soundEffects]);
+
+  // Check for GitHub updates on startup
+  useEffect(() => {
+    const checkUpdates = async () => {
+      try {
+        const res = await fetch('https://api.github.com/repos/24Quary24/Riot-Account-Switcher/releases/latest');
+        if (res.ok) {
+          const data = await res.json();
+          const latestTag = data.tag_name;
+          const currentVersion = '1.9.0';
+          if (latestTag) {
+            const cleanLatest = latestTag.replace(/^v/, '');
+            if (cleanLatest > currentVersion) {
+              setUpdateAvailable({
+                tag: latestTag,
+                url: data.html_url || 'https://github.com/24Quary24/Riot-Account-Switcher/releases',
+              });
+            }
+          }
+        }
+      } catch {}
+    };
+    checkUpdates();
+  }, []);
+
   // Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') {
         e.preventDefault();
+        sound.playClick();
         setEditingAccount(null);
         setIsAddModalOpen(true);
       } else if ((e.ctrlKey || e.metaKey) && e.key === ',') {
         e.preventDefault();
+        sound.playClick();
         setActiveTab('settings');
       } else if ((e.ctrlKey || e.metaKey) && Number(e.key) >= 1 && Number(e.key) <= 9) {
         const idx = Number(e.key) - 1;
         if (accounts[idx]) {
           e.preventDefault();
+          sound.playClick();
           const target = accounts[idx];
           const primaryGame = target.games === 'league' ? 'league' : 'valorant';
           handleLaunchAccount(target.id, primaryGame);
@@ -167,15 +202,16 @@ export const App: React.FC = () => {
   }, [accounts]);
 
   // Launch Account
-  const handleLaunchAccount = async (accountId: string, game: 'valorant' | 'league') => {
+  const handleLaunchAccount = async (accountId: string, game: 'valorant' | 'league' | 'client') => {
     const target = accounts.find((a) => a.id === accountId);
     if (!target) return;
 
-    // In-Game Match Safety Guard
-    if (settings.warnActiveGame !== false && isElectron && api.checkGameRunning) {
+    // In-Game Match Safety Guard (only if switching to a game, not just opening client)
+    if (settings.warnActiveGame !== false && isElectron && api.checkGameRunning && game !== 'client') {
       try {
         const gameStatus = await api.checkGameRunning();
         if (gameStatus && gameStatus.isRunning) {
+          sound.playWarning();
           const proceed = window.confirm(
             `⚠️ In-Game Match Safety Warning!\n\nA live ${gameStatus.gameName || 'Riot game'} match is currently running (${gameStatus.processName}). Switching accounts will terminate this match, resulting in an AFK penalty/dodge.\n\nAre you sure you want to proceed and switch accounts?`
           );
@@ -188,13 +224,16 @@ export const App: React.FC = () => {
       }
     }
 
+    sound.playSwitch();
     setIsLaunching(true);
-    setLaunchStatus(`Preparing ${game.toUpperCase()} for ${target.label}...`);
+    const targetLabel = game === 'client' ? 'Riot Client' : game.toUpperCase();
+    setLaunchStatus(`Preparing ${targetLabel} for ${target.label}...`);
 
     if (isElectron) {
       try {
         const res = await api.launchAccount(accountId, game);
         if (res.success) {
+          sound.playSuccess();
           addToast('Client Launched', res.message, 'success');
         } else {
           addToast('Credential Input Warning', res.message || 'Could not verify input in Riot Client.', 'warning');
@@ -211,7 +250,8 @@ export const App: React.FC = () => {
       setTimeout(() => {
         setIsLaunching(false);
         setLaunchStatus('');
-        addToast('Simulated Launch', `In production, Riot Client launches with ${target.username} and starts ${game.toUpperCase()}`, 'success');
+        sound.playSuccess();
+        addToast('Simulated Launch', `In production, Riot Client launches with ${target.username} and opens ${targetLabel}`, 'success');
       }, 1500);
     }
   };
@@ -493,6 +533,53 @@ export const App: React.FC = () => {
       <main className="content-viewport">
         {activeTab === 'accounts' && (
           <div>
+            {/* Update Available Notification Banner */}
+            {updateAvailable && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '10px 16px',
+                  marginBottom: '14px',
+                  background: 'linear-gradient(90deg, rgba(99, 102, 241, 0.15), rgba(79, 70, 229, 0.22))',
+                  border: '1px solid rgba(99, 102, 241, 0.4)',
+                  borderRadius: 'var(--radius-md)',
+                  backdropFilter: 'blur(8px)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <Sparkles size={16} color="#818cf8" />
+                  <span style={{ fontSize: '13px', color: '#e0e7ff' }}>
+                    A new version of Riot Account Switcher is available: <strong style={{ color: '#fff' }}>{updateAvailable.tag}</strong>
+                  </span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => {
+                      sound.playClick();
+                      if (api?.openExternal) api.openExternal(updateAvailable.url);
+                      else window.open(updateAvailable.url, '_blank');
+                    }}
+                    style={{ gap: '6px', color: '#818cf8', borderColor: 'rgba(99, 102, 241, 0.4)' }}
+                  >
+                    <Download size={13} /> Update Now
+                  </button>
+                  <button
+                    className="btn btn-secondary btn-sm btn-icon"
+                    onClick={() => {
+                      sound.playClick();
+                      setUpdateAvailable(null);
+                    }}
+                    title="Dismiss"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Active Session Status Banner */}
             {activeSession && (
               <div
@@ -532,7 +619,10 @@ export const App: React.FC = () => {
 
                 <button
                   className="btn btn-secondary btn-sm"
-                  onClick={handleForceLogout}
+                  onClick={() => {
+                    sound.playClick();
+                    handleForceLogout();
+                  }}
                   disabled={isLoggingOut}
                   style={{
                     display: 'flex',
@@ -549,6 +639,53 @@ export const App: React.FC = () => {
                 </button>
               </div>
             )}
+
+            {/* Portfolio Summary Ribbon */}
+            {accounts.length > 0 && (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                  gap: '10px',
+                  marginBottom: '16px',
+                }}
+              >
+                <div className="stat-box" style={{ padding: '8px 14px', gap: '3px', background: 'rgba(255,255,255,0.02)' }}>
+                  <span style={{ fontSize: '10px', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Saved Roster</span>
+                  <span style={{ fontSize: '15px', fontWeight: 800, color: '#FFF' }}>{accounts.length} Profiles</span>
+                </div>
+                <div className="stat-box" style={{ padding: '8px 14px', gap: '3px', background: 'rgba(255,255,255,0.02)' }}>
+                  <span style={{ fontSize: '10px', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>⚡ Silent 1-Click</span>
+                  <span style={{ fontSize: '15px', fontWeight: 800, color: '#f59e0b' }}>
+                    {accounts.filter((a) => a.hasSavedSession).length} / {accounts.length} Ready
+                  </span>
+                </div>
+                <div className="stat-box" style={{ padding: '8px 14px', gap: '3px', background: 'rgba(255,255,255,0.02)' }}>
+                  <span style={{ fontSize: '10px', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Combined VP / RP</span>
+                  <span style={{ fontSize: '14px', fontWeight: 800, color: '#FFF' }}>
+                    {accounts.reduce((s, a) => s + (a.valorantStats?.vpBalance || 0), 0).toLocaleString()} <span style={{ fontSize: '11px', color: '#f59e0b' }}>VP</span>
+                    <span style={{ color: 'var(--text-dim)', margin: '0 4px' }}>/</span>
+                    {accounts.reduce((s, a) => s + (a.leagueStats?.rpBalance || 0), 0).toLocaleString()} <span style={{ fontSize: '11px', color: 'var(--hextech-gold)' }}>RP</span>
+                  </span>
+                </div>
+                <div className="stat-box" style={{ padding: '8px 14px', gap: '3px', background: 'rgba(255,255,255,0.02)' }}>
+                  <span style={{ fontSize: '10px', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Top Rank Achieved</span>
+                  <span style={{ fontSize: '14px', fontWeight: 800, color: 'var(--riot-teal)' }}>
+                    {(() => {
+                      const top = [...accounts].sort((a, b) => getRankScore(b) - getRankScore(a))[0];
+                      if (top?.valorantStats?.rank && top.valorantStats.rank !== 'Unranked') {
+                        return `VAL: ${top.valorantStats.rank}`;
+                      }
+                      if (top?.leagueStats?.soloRank && top.leagueStats.soloRank !== 'Unranked') {
+                        return `LoL: ${top.leagueStats.soloRank}`;
+                      }
+                      return 'Unranked';
+                    })()}
+                  </span>
+                </div>
+              </div>
+            )}
+
             {filteredAccounts.length === 0 ? (
               <div
                 style={{
@@ -574,6 +711,7 @@ export const App: React.FC = () => {
                   className="btn btn-primary"
                   style={{ marginTop: '20px' }}
                   onClick={() => {
+                    sound.playClick();
                     setEditingAccount(null);
                     setIsAddModalOpen(true);
                   }}
@@ -583,21 +721,27 @@ export const App: React.FC = () => {
               </div>
             ) : (
               <div className="account-grid">
-                {filteredAccounts.map((account) => (
+                {filteredAccounts.map((account, idx) => (
                   <AccountCard
                     key={account.id}
                     account={account}
                     isActive={isAccountActive(account)}
+                    shortcutIndex={idx}
                     onLaunch={handleLaunchAccount}
                     onEdit={(acc) => {
+                      sound.playClick();
                       setEditingAccount(acc);
                       setIsAddModalOpen(true);
                     }}
                     onDelete={handleDeleteAccount}
-                    onSelect={(acc) => setSelectedAccount(acc)}
+                    onSelect={(acc) => {
+                      sound.playClick();
+                      setSelectedAccount(acc);
+                    }}
                     onToggleFavorite={handleToggleFavorite}
                     onRefresh={loadData}
                     onTypeCredentials={handleTypeCredentials}
+                    onNotify={addToast}
                     isLaunching={isLaunching}
                   />
                 ))}

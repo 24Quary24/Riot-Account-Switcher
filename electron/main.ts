@@ -263,13 +263,23 @@ function setupIpcHandlers() {
     updateTrayMenu();
   });
 
-  ipcMain.handle('launcher:launch', async (event, accountId: string, game: 'valorant' | 'league') => {
-    if (typeof accountId !== 'string' || (game !== 'valorant' && game !== 'league')) {
+  ipcMain.handle('launcher:launch', async (event, accountId: string, game: 'valorant' | 'league' | 'client') => {
+    if (typeof accountId !== 'string' || (game !== 'valorant' && game !== 'league' && game !== 'client')) {
       throw new Error('Invalid launch request parameters');
     }
     return launcherService.launchAccount(accountId, game, (status) => {
       event.sender.send('launcher:status', status);
     });
+  });
+
+  ipcMain.handle('accounts:get-password', async (_event, username: string) => {
+    if (typeof username !== 'string' || !username) return null;
+    return storageService.getAccountPassword(username);
+  });
+
+  ipcMain.handle('app:open-external', async (_event, targetUrl: string) => {
+    if (typeof targetUrl !== 'string' || !targetUrl.startsWith('http')) return;
+    await shell.openExternal(targetUrl);
   });
 
   ipcMain.handle('launcher:force-logout', async () => {

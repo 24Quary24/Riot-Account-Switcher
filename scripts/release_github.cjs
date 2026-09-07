@@ -63,16 +63,14 @@ const body = `### Riot Account Switcher ${tag}
 > **Active Testing Notice**: Riot Account Switcher is currently in **active testing & continuous development**. Automated input detection relies on OS window focus and Riot Client CEF web rendering. Silent session switching is recommended for daily use.
 
 #### Highlights & New Features in ${tag}:
-- **Official Installation Auto-Discovery**: Automatically queries \`C:\\ProgramData\\Riot Games\\RiotClientInstalls.json\` to detect Riot Client, Valorant, and League of Legends across any custom drive letter (D:, E:, etc.) with zero manual configuration needed.
-- **In-Game Match Safety Guard**: Prevents accidental AFK bans or ranked queue dodges! Detects active matches (\`VALORANT-Win64-Shipping.exe\`, \`VALORANT.exe\`, \`League of Legends.exe\`) and prompts you for confirmation before terminating processes or switching profiles.
-- **Active Session Auto-Fill**: In the Add/Edit Account dialog, click **"Auto-Fill from Active Riot Session"** to instantly grab your currently logged-in Riot ID, Tagline, PUUID, and region without manual typing.
-- **Account Sorting & Quick Filters**: Sort your roster by Recently Played, Highest Rank (Radiant/Challenger down to Iron), Region, or Account Name (A–Z). Filter with a single click using the **⚡ Silent Ready** pill.
-- **Custom Account Tags & Notes**: Categorize your accounts with custom tags (e.g. *Main*, *Smurf*, *Duo*, *Tournament*) and private notes, displayed prominently on account cards.
-- **Live Active Account Glow**: The account currently active in Riot Client is now badged with **● Active** and a distinct green accent glow.
-- **Batch Refresh All**: Refresh live ranks, match histories, and LP for your entire account roster simultaneously from the top navigation bar.
-- **Start with Windows**: Added an option in Settings to launch Riot Account Switcher automatically on system startup.
-- **Enhanced System Tray**: Shows active accounts and silent-ready badges directly from the Windows taskbar context menu.
-- **30-Day 2FA Trusted Device Persistence (\`tdid\`) & PSL Session Engine**: Retained and polished all core persistent session engine features.`;
+- **Switch Riot Client Only (No Game Launch)**: Added a dedicated 1-click option to switch profiles directly in Riot Client without forcing Valorant or League to start. Perfect for checking daily store offers, Night Market, or messaging friends.
+- **Direct Tracker.gg & OP.GG Integration**: Added 1-click buttons on account cards and detail drawers to immediately view career stats, match histories, and MMR on Tracker.gg (Valorant) and OP.GG (League).
+- **Account Portfolio Summary Ribbon**: Sleek overview banner above your roster displaying total profiles, ⚡ Silent Ready count, combined VP & RP currency balances, and top rank achieved.
+- **Quiet Tactile UI Audio (Web Audio API)**: Zero-dependency, ultra-quiet, gentle micro-sounds for button clicks, switches, warnings, and success chimes. Fully respects the Audio Feedback toggle in Settings.
+- **Quick Copy Riot ID & Secure Password**: Added quick-copy actions in the account card menu, with an automatic 30-second clipboard wipe for password security.
+- **Keyboard Shortcut Badges (\`Ctrl+1\` – \`Ctrl+9\`)**: Subtle hotkey indicators on your top 9 account cards for instant switching.
+- **Client Language & Custom Launch Arguments**: Select custom client locales (e.g. Japanese \`ja_JP\` or Korean \`ko_KR\` for anime/foreign voiceovers) or custom flags directly in Settings.
+- **Automatic GitHub Update Checker**: Checks for new releases on startup and displays an unobtrusive update banner with a 1-click download link.`;
 
 function request(options, data = null) {
   return new Promise((resolve, reject) => {

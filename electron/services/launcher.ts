@@ -168,14 +168,14 @@ export class LauncherService {
    */
   public async launchAccount(
     accountId: string,
-    game: 'valorant' | 'league',
+    game: 'valorant' | 'league' | 'client',
     onStatus?: (status: string) => void
   ): Promise<{ success: boolean; message: string }> {
     // Validate inputs
     if (typeof accountId !== 'string' || !accountId) {
       throw new Error('Invalid account identifier');
     }
-    if (game !== 'valorant' && game !== 'league') {
+    if (game !== 'valorant' && game !== 'league' && game !== 'client') {
       throw new Error('Invalid game target');
     }
 
@@ -197,7 +197,26 @@ export class LauncherService {
       throw new Error(`Riot Client was not found at: ${clientPath}\nPlease specify the correct path in Settings.`);
     }
 
-    const productArg = game === 'valorant' ? 'valorant' : 'league_of_legends';
+    // Helper to build client arguments including locale and custom parameters
+    const buildLaunchArgs = (): string[] => {
+      const args: string[] = [];
+      if (game !== 'client') {
+        const productArg = game === 'valorant' ? 'valorant' : 'league_of_legends';
+        args.push(`--launch-product=${productArg}`);
+      }
+      args.push('--launch-patchline=live');
+
+      if (settings.gameLocale && settings.gameLocale !== 'default') {
+        args.push(`--locale=${settings.gameLocale}`);
+      }
+
+      if (settings.customLaunchArgs && settings.customLaunchArgs.trim()) {
+        const extra = settings.customLaunchArgs.trim().split(/\s+/).filter(Boolean);
+        args.push(...extra);
+      }
+
+      return args;
+    };
 
     // 1. Snapshot the currently active Riot session on disk or via API before switching
     let isAlreadyActive = false;
@@ -238,15 +257,16 @@ export class LauncherService {
     if (isAlreadyActive) {
       // Already logged in as this account — snapshot session and launch game directly
       this.storage.saveAccountSession(account.id);
-      onStatus?.(`Already signed in as ${account.riotId || account.label}. Launching ${game.toUpperCase()}...`);
-      const child = spawn(clientPath, [`--launch-product=${productArg}`, '--launch-patchline=live'], {
+      const targetDesc = game === 'client' ? 'Riot Client' : game.toUpperCase();
+      onStatus?.(`Already signed in as ${account.riotId || account.label}. Opening ${targetDesc}...`);
+      const child = spawn(clientPath, buildLaunchArgs(), {
         detached: true,
         stdio: 'ignore',
         windowsHide: false,
       });
       child.unref();
 
-      if (process.platform === 'win32') {
+      if (process.platform === 'win32' && game !== 'client') {
         const waitSeconds = Math.max(4, Math.min(12, settings.launchDelaySeconds || 5));
         if (settings.autoLaunchGame) {
           onStatus?.(`Waiting ${waitSeconds}s for client to load, then clicking Play...`);
@@ -262,7 +282,9 @@ export class LauncherService {
 
       return {
         success: true,
-        message: `Launched ${game.toUpperCase()} for ${account.riotId || account.label}!`,
+        message: game === 'client'
+          ? `Ready in Riot Client for ${account.riotId || account.label}!`
+          : `Launched ${game.toUpperCase()} for ${account.riotId || account.label}!`,
       };
     }
 
@@ -276,15 +298,16 @@ export class LauncherService {
       // Restore target account's saved session (injects 30-day 2FA trusted device if missing)
       const restored = this.storage.restoreAccountSession(account.id);
       if (restored) {
-        onStatus?.(`Launching ${game.toUpperCase()} directly...`);
-        const child = spawn(clientPath, [`--launch-product=${productArg}`, '--launch-patchline=live'], {
+        const targetDesc = game === 'client' ? 'Riot Client' : game.toUpperCase();
+        onStatus?.(`Opening ${targetDesc} directly...`);
+        const child = spawn(clientPath, buildLaunchArgs(), {
           detached: true,
           stdio: 'ignore',
           windowsHide: false,
         });
         child.unref();
 
-        if (process.platform === 'win32') {
+        if (process.platform === 'win32' && game !== 'client') {
           const waitSeconds = Math.max(4, Math.min(12, settings.launchDelaySeconds || 5));
           if (settings.autoLaunchGame) {
             onStatus?.(`Client loading in background (${waitSeconds}s)...`);
@@ -300,7 +323,9 @@ export class LauncherService {
 
         return {
           success: true,
-          message: `Silently switched to ${account.riotId || account.label} and launched ${game.toUpperCase()}!`,
+          message: game === 'client'
+            ? `Silently switched to ${account.riotId || account.label} in Riot Client!`
+            : `Silently switched to ${account.riotId || account.label} and launched ${game.toUpperCase()}!`,
         };
       }
     }
@@ -310,8 +335,9 @@ export class LauncherService {
     onStatus?.(`Switching to ${account.label}: logging out previous account and resetting session...`);
     await this.closeRunningClients(true);
 
-    onStatus?.(`Opening Riot Client for ${account.label} (${game.toUpperCase()})...`);
-    const launchArgs = [`--launch-product=${productArg}`, '--launch-patchline=live'];
+    const targetDesc = game === 'client' ? 'Riot Client' : game.toUpperCase();
+    onStatus?.(`Opening Riot Client for ${account.label} (${targetDesc})...`);
+    const launchArgs = buildLaunchArgs();
 
     const child = spawn(clientPath, launchArgs, {
       detached: true,
@@ -356,11 +382,11 @@ export class LauncherService {
 
       if (loggedIn) {
         onStatus?.('Authentication verified and 30-day session saved! Future switches will be 100% silent.');
-        if (settings.autoLaunchGame) {
+        if (settings.autoLaunchGame && game !== 'client') {
           onStatus?.('Clicking Play button...');
           await this.clickPlayButton(game, onStatus);
         } else {
-          onStatus?.('Authentication complete! (Auto-launch game is disabled in Settings)');
+          onStatus?.('Authentication complete! Ready in Riot Client.');
         }
       } else {
         onStatus?.('Riot Client opened. When login finishes, your session will automatically be saved in the background.');
@@ -375,6 +401,8 @@ export class LauncherService {
       success: true,
       message: account.has2fa
         ? `Credentials entered — complete 2FA in Riot Client. 30-day device trust is preserved!`
+        : game === 'client'
+        ? `Switched to ${account.riotId || account.label} in Riot Client! Session saved for future silent launches!`
         : `Switched to ${account.riotId || account.label} and launched ${game.toUpperCase()}. Session saved for future silent launches!`,
     };
   }

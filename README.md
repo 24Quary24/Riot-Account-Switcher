@@ -55,6 +55,20 @@ Riot Account Switcher eliminates the manual login/logout cycle for players with 
 - Monitors for active matches (`VALORANT.exe`, `VALORANT-Win64-Shipping.exe`, `League of Legends.exe`).
 - Warns with a confirmation prompt before switching to prevent accidental ranked AFK penalties or match dodges.
 
+### Switch Riot Client Only
+- 1-click option to switch profiles directly in Riot Client without launching a game. Perfect for checking daily store skins, Night Market, or chatting with friends.
+
+### Direct Tracker Integration (Tracker.gg & OP.GG)
+- 1-click shortcuts on each account card and detail drawer to view career stats, match histories, and MMR on Tracker.gg (Valorant) and OP.GG (League).
+
+### Account Portfolio Summary Ribbon & Hotkeys
+- Overview banner displaying total saved accounts, ⚡ Silent Ready count, combined VP & RP balances, and peak rank.
+- Visual hotkey chips (`Ctrl+1` – `Ctrl+9`) for instant keyboard-driven account switching.
+
+### Quiet Tactile UI Audio & Client Customization
+- Ultra-quiet, non-intrusive synthesized audio feedback for clicks, switches, warnings, and success chimes.
+- Configure custom client language / voice packs (`--locale=ja_JP`, `--locale=ko_KR`) and custom launch arguments.
+
 ### Automatic Client Discovery
 - Seamlessly resolves Riot Client, Valorant, and League of Legends paths across custom drive letters (D:, E:, etc.) using the official `RiotClientInstalls.json` configuration.
 

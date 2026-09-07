@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { X, Play, ShieldCheck, Key, User, Globe, Gamepad2, RefreshCw, Zap, Trophy, Coins, Sparkles, Award } from 'lucide-react';
+import { X, Play, ShieldCheck, Key, User, Globe, Gamepad2, RefreshCw, Zap, Trophy, Coins, Sparkles, Award, Monitor, ExternalLink } from 'lucide-react';
 import { RiotAccount } from '../types';
+import { sound } from '../services/sound';
 
 interface AccountDetailModalProps {
   account: RiotAccount | null;
   onClose: () => void;
-  onLaunch: (accountId: string, game: 'valorant' | 'league') => void;
+  onLaunch: (accountId: string, game: 'valorant' | 'league' | 'client') => void;
   onRefresh?: () => void;
   isLaunching?: boolean;
 }
@@ -22,6 +23,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   if (!account) return null;
 
   const handleRefreshStats = async () => {
+    sound.playClick();
     const api = (window as any).riotManagerApi;
     if (api?.refreshAccountStats) {
       setIsRefreshing(true);
@@ -76,7 +78,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
             >
               <RefreshCw size={14} className={isRefreshing ? 'spin-anim' : ''} />
             </button>
-            <button className="btn btn-secondary btn-icon btn-sm" onClick={onClose}>
+            <button className="btn btn-secondary btn-icon btn-sm" onClick={() => { sound.playClick(); onClose(); }}>
               <X size={16} />
             </button>
           </div>
@@ -84,27 +86,91 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
 
         <div className="drawer-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px', overflowY: 'auto' }}>
           {/* Action Launch Buttons */}
-          <div style={{ display: 'flex', gap: '8px' }}>
-            {(account.games === 'valorant' || account.games === 'both') && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              {(account.games === 'valorant' || account.games === 'both') && (
+                <button
+                  className="btn btn-primary btn-play-game"
+                  style={{ flex: 1 }}
+                  onClick={() => {
+                    sound.playClick();
+                    onLaunch(account.id, 'valorant');
+                  }}
+                  disabled={isLaunching}
+                >
+                  <Play size={13} fill="#FFF" /> Play VALORANT
+                </button>
+              )}
+              {(account.games === 'league' || account.games === 'both') && (
+                <button
+                  className="btn btn-teal btn-play-game"
+                  style={{ flex: 1 }}
+                  onClick={() => {
+                    sound.playClick();
+                    onLaunch(account.id, 'league');
+                  }}
+                  disabled={isLaunching}
+                >
+                  <Play size={13} fill="#0A0A0A" /> Play League
+                </button>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px' }}>
               <button
-                className="btn btn-primary btn-play-game"
-                style={{ flex: 1 }}
-                onClick={() => onLaunch(account.id, 'valorant')}
+                className="btn btn-secondary btn-sm"
+                style={{ flex: 1, justifyContent: 'center', gap: '6px' }}
+                onClick={() => {
+                  sound.playClick();
+                  onLaunch(account.id, 'client');
+                }}
                 disabled={isLaunching}
+                title="Switch login in Riot Client without launching a game"
               >
-                <Play size={13} fill="#FFF" /> Play VALORANT
+                <Monitor size={13} /> Open Riot Client Only
               </button>
-            )}
-            {(account.games === 'league' || account.games === 'both') && (
-              <button
-                className="btn btn-teal btn-play-game"
-                style={{ flex: 1 }}
-                onClick={() => onLaunch(account.id, 'league')}
-                disabled={isLaunching}
-              >
-                <Play size={13} fill="#0A0A0A" /> Play League
-              </button>
-            )}
+
+              {account.riotId && (account.games === 'valorant' || account.games === 'both') && (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  style={{ gap: '5px' }}
+                  onClick={() => {
+                    sound.playClick();
+                    const tag = account.tagline || account.region;
+                    const url = `https://tracker.gg/valorant/profile/riot/${encodeURIComponent(account.riotId)}%23${encodeURIComponent(tag)}/overview`;
+                    if ((window as any).riotManagerApi?.openExternal) {
+                      (window as any).riotManagerApi.openExternal(url);
+                    } else {
+                      window.open(url, '_blank');
+                    }
+                  }}
+                  title="View match history & MMR on Tracker.gg"
+                >
+                  <ExternalLink size={12} /> Tracker.gg
+                </button>
+              )}
+
+              {account.riotId && (account.games === 'league' || account.games === 'both') && (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  style={{ gap: '5px' }}
+                  onClick={() => {
+                    sound.playClick();
+                    const tag = account.tagline || account.region;
+                    const reg = account.region.toLowerCase();
+                    const url = `https://www.op.gg/summoners/${reg}/${encodeURIComponent(account.riotId)}-${encodeURIComponent(tag)}`;
+                    if ((window as any).riotManagerApi?.openExternal) {
+                      (window as any).riotManagerApi.openExternal(url);
+                    } else {
+                      window.open(url, '_blank');
+                    }
+                  }}
+                  title="View match history & ranks on OP.GG"
+                >
+                  <ExternalLink size={12} /> OP.GG
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Valorant Stats Section */}

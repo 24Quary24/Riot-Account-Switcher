@@ -5,7 +5,7 @@ export interface RiotManagerApi {
   getAccounts: () => Promise<RiotAccount[]>;
   saveAccount: (account: RiotAccount, password?: string) => Promise<void>;
   deleteAccount: (id: string) => Promise<void>;
-  launchAccount: (accountId: string, game: 'valorant' | 'league') => Promise<{ success: boolean; message: string }>;
+  launchAccount: (accountId: string, game: 'valorant' | 'league' | 'client') => Promise<{ success: boolean; message: string }>;
   refreshAccountStats: (account: RiotAccount) => Promise<{ valorantStats?: ValorantStats; leagueStats?: LeagueStats }>;
   getSettings: () => Promise<AppSettings>;
   saveSettings: (settings: Partial<AppSettings>) => Promise<AppSettings>;
@@ -25,6 +25,8 @@ export interface RiotManagerApi {
   autoDetectRiotPath: () => Promise<string | null>;
   checkGameRunning: () => Promise<{ isRunning: boolean; gameName?: string; processName?: string }>;
   refreshAllStats: () => Promise<RiotAccount[]>;
+  getPassword: (username: string) => Promise<string | null>;
+  openExternal: (url: string) => Promise<void>;
   onLaunchStatus: (callback: (status: string) => void) => () => void;
 }
 
@@ -36,6 +38,8 @@ const api: RiotManagerApi = {
   typeCredentials: (accountId) => ipcRenderer.invoke('launcher:type-credentials', accountId),
   refreshAccountStats: (account) => ipcRenderer.invoke('riot:refresh-stats', account),
   refreshAllStats: () => ipcRenderer.invoke('accounts:refresh-all'),
+  getPassword: (username) => ipcRenderer.invoke('accounts:get-password', username),
+  openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
   detectActiveSession: () => ipcRenderer.invoke('riot:detect-current-session'),
   captureSession: (accountId) => ipcRenderer.invoke('session:capture', accountId),
   clearSession: (accountId) => ipcRenderer.invoke('session:clear', accountId),
