@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldCheck, Flame, Zap, Command, Lock, KeyRound } from 'lucide-react';
+import { ShieldCheck, Flame, Zap, Command, Lock, KeyRound, AlertTriangle } from 'lucide-react';
 
 export const AboutView: React.FC = () => {
   return (
@@ -20,12 +20,44 @@ export const AboutView: React.FC = () => {
           <Flame size={32} color="#FFF" />
         </div>
         <div>
-          <h2 style={{ fontSize: '22px', color: '#FFF' }}>Riot Client Wrapper & Switcher</h2>
+          <h2 style={{ fontSize: '22px', color: '#FFF' }}>Riot Account Switcher</h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
-            <span style={{ fontSize: '13px', color: 'var(--riot-teal)', fontWeight: 700 }}>Version 1.0.0</span>
+            <span style={{ fontSize: '13px', color: 'var(--riot-teal)', fontWeight: 700 }}>Version 1.7.0</span>
+            <span
+              style={{
+                fontSize: '10px',
+                fontWeight: 800,
+                color: '#f59e0b',
+                background: 'rgba(245, 158, 11, 0.15)',
+                border: '1px solid rgba(245, 158, 11, 0.35)',
+                padding: '1px 6px',
+                borderRadius: '4px',
+                textTransform: 'uppercase',
+              }}
+            >
+              Testing / Beta
+            </span>
             <span style={{ fontSize: '12px', color: 'var(--text-dim)' }}>· Electron + React + TypeScript</span>
           </div>
         </div>
+      </div>
+
+      {/* Active Testing Notice */}
+      <div
+        className="stat-box"
+        style={{
+          padding: '16px 20px',
+          borderRadius: '8px',
+          borderColor: 'rgba(245, 158, 11, 0.35)',
+          background: 'rgba(245, 158, 11, 0.06)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#fbbf24', fontWeight: 700, fontSize: '14px' }}>
+          <AlertTriangle size={18} /> Active Testing Notice
+        </div>
+        <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '6px', lineHeight: '1.6' }}>
+          Riot Account Switcher is currently in <strong>active testing and continuous improvement</strong>. Automated window detection and keystroke injection depend on Windows display scaling, window focus policies, and Riot Client updates, and may occasionally require manual focus or the <strong>"Auto-Type Credentials"</strong> fallback. Silent session switching is recommended for daily use.
+        </p>
       </div>
 
       {/* Security Architecture Card */}

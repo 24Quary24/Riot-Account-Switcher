@@ -20,6 +20,7 @@ export interface RiotManagerApi {
   captureSession: (accountId: string) => Promise<boolean>;
   clearSession: (accountId: string) => Promise<boolean>;
   forceLogout: () => Promise<{ success: boolean; message: string }>;
+  typeCredentials: (accountId: string) => Promise<{ success: boolean; message: string }>;
   validateRiotPath: (path: string) => Promise<boolean>;
   onLaunchStatus: (callback: (status: string) => void) => () => void;
 }
@@ -29,6 +30,7 @@ const api: RiotManagerApi = {
   saveAccount: (account, password) => ipcRenderer.invoke('accounts:save', account, password),
   deleteAccount: (id) => ipcRenderer.invoke('accounts:delete', id),
   launchAccount: (accountId, game) => ipcRenderer.invoke('launcher:launch', accountId, game),
+  typeCredentials: (accountId) => ipcRenderer.invoke('launcher:type-credentials', accountId),
   refreshAccountStats: (account) => ipcRenderer.invoke('riot:refresh-stats', account),
   detectActiveSession: () => ipcRenderer.invoke('riot:detect-current-session'),
   captureSession: (accountId) => ipcRenderer.invoke('session:capture', accountId),

@@ -262,14 +262,20 @@ export class LauncherService {
         onStatus?.('Login screen detection note: Continuing with direct window verification...');
       }
 
-      // Small stabilization buffer so Chromium DOM finishes mounting input focus handlers
-      await new Promise((r) => setTimeout(r, 1500));
+      // Respect user-configured delay setting for visual DOM mounting
+      const stabilizationSeconds = Math.max(2, Math.min(10, settings.launchDelaySeconds || 4));
+      onStatus?.(`Waiting ${stabilizationSeconds}s for Riot Client visual window to mount...`);
+      await new Promise((r) => setTimeout(r, stabilizationSeconds * 1000));
 
       onStatus?.(`Safely entering credentials for ${account.username} (Strict Isolation Guard)...`);
       const typed = await this.injectCredentialsSafely(account.username, password, onStatus);
 
       if (!typed) {
-        onStatus?.('Input guard note: Could not verify input field. Please click inside Riot Client to login.');
+        onStatus?.('Input guard: Could not verify credential entry in Riot Client.');
+        return {
+          success: false,
+          message: `Riot Client opened, but could not automatically verify credentials for ${account.username}. Please ensure the login screen is visible, or use the "Auto-Type Credentials" option to retry.`,
+        };
       } else if (account.has2fa) {
         onStatus?.('2FA Protected: Complete verification in Riot Client (session will be saved once logged in).');
       } else {
@@ -304,13 +310,43 @@ export class LauncherService {
   }
 
   /**
-   * Inject credentials safely with STRICT ISOLATION and INPUT VERIFICATION.
-   * - Uses EnumWindows to locate the actual visible Riot Client window.
-   * - Uses Win32 AttachThreadInput to activate Riot Client without focus lock issues.
-   * - SAFETY GATE: Checks GetForegroundWindow(). If the foreground window does NOT belong
-   *   to a Riot process, IT NEVER TYPES A SINGLE KEYSTROKE (protecting YouTube, browsers, etc.).
-   * - INPUT VERIFICATION: Verifies via clipboard/selection that the entered username matches
-   *   what is in the input field before proceeding to password and submission.
+   * Standalone helper to type credentials into an already-open Riot Client login screen.
+   * Useful when Riot Client was already open or if the initial auto-type timed out.
+   */
+  public async typeCredentialsDirectly(accountId: string): Promise<{ success: boolean; message: string }> {
+    const accounts = this.storage.getAccounts();
+    const account = accounts.find((a) => a.id === accountId);
+    if (!account) {
+      throw new Error('Account not found');
+    }
+
+    const password = this.storage.getAccountPassword(account.username);
+    if (!password) {
+      throw new Error(`No credentials saved for ${account.username}. Please edit the account and re-enter the password.`);
+    }
+
+    const typed = await this.injectCredentialsSafely(account.username, password);
+    if (typed) {
+      return {
+        success: true,
+        message: `Credentials for ${account.username} entered and verified in Riot Client!`,
+      };
+    } else {
+      return {
+        success: false,
+        message: `Could not focus or enter credentials in Riot Client. Please ensure Riot Client is open at the login screen and not minimized.`,
+      };
+    }
+  }
+
+  /**
+   * Inject credentials safely with STRICT ISOLATION and MULTI-ATTEMPT INPUT VERIFICATION.
+   * - Uses EnumWindows to locate the top-level visible interactive Riot Client window (RiotClientUx).
+   * - Bypasses Windows foreground lock policies via simulated ALT key + AttachThreadInput + SW_RESTORE.
+   * - Adaptive dual-focus strategy: checks candidate coordinates + keyboard TAB navigation.
+   * - Verifies entered username via clipboard selection (^a^c) before touching password or Enter.
+   * - Fallback character-by-character typing if clipboard paste is rejected by host.
+   * - Replaces false-positive exits with strict verification checking.
    */
   private async injectCredentialsSafely(
     username: string,
@@ -328,6 +364,7 @@ using System.Text;
 using System.Runtime.InteropServices;
 using System.Diagnostics;
 using System.Threading;
+using System.Collections.Generic;
 
 public class RiotInputGuard {
     public struct RECT { public int Left, Top, Right, Bottom; }
@@ -339,6 +376,7 @@ public class RiotInputGuard {
     [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
     [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
     [DllImport("user32.dll")] public static extern int GetClassName(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
@@ -346,18 +384,35 @@ public class RiotInputGuard {
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
     [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
     [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
-
+    [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
     [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT lpPoint);
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
     [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, int dx, int dy, uint dwData, IntPtr dwExtraInfo);
 
+    private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+    private static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
+    private const uint SWP_NOSIZE = 0x0001;
+    private const uint SWP_NOMOVE = 0x0002;
+    private const uint SWP_SHOWWINDOW = 0x0040;
+    private const byte VK_MENU = 0x12;
+    private const uint KEYEVENTF_KEYUP = 0x0002;
+
+    public class WindowCandidate {
+        public IntPtr Hwnd;
+        public int Score;
+        public int Width;
+        public int Height;
+    }
+
     public static IntPtr FindRiotWindow() {
-        IntPtr found = IntPtr.Zero;
+        var candidates = new List<WindowCandidate>();
         uint curPid = (uint)Process.GetCurrentProcess().Id;
+
         EnumWindows((hWnd, lParam) => {
-            if (!IsWindowVisible(hWnd)) return true;
+            if (!IsWindowVisible(hWnd) || IsIconic(hWnd)) return true;
             RECT r;
             GetWindowRect(hWnd, out r);
             int width = r.Right - r.Left;
@@ -372,7 +427,6 @@ public class RiotInputGuard {
                 Process p = Process.GetProcessById((int)pid);
                 string name = p.ProcessName.ToLower();
 
-                // Explicitly ignore our own switcher, manager, or electron wrapper
                 if (name.Contains("switcher") || name.Contains("manager") || name.Contains("electron")) {
                     return true;
                 }
@@ -385,25 +439,41 @@ public class RiotInputGuard {
                 GetClassName(hWnd, cb, 256);
                 string cls = cb.ToString();
 
-                bool isRiotProc = name == "riot client" || name == "riotclientservices" || name.StartsWith("riotclient");
+                bool isRiotProc = name == "riot client" || name == "riotclientservices" || name == "riotclientux" || name.StartsWith("riotclient");
                 bool isRiotTitle = title.Contains("riot client");
-                bool isChromiumOrRiotClass = cls.StartsWith("Chrome_WidgetWin") || cls.ToLower().Contains("riot") || string.IsNullOrEmpty(cls);
+                bool isChromiumClass = cls.StartsWith("Chrome_WidgetWin") || cls.ToLower().Contains("riot") || string.IsNullOrEmpty(cls);
 
-                if ((isRiotProc || isRiotTitle) && isChromiumOrRiotClass) {
-                    found = hWnd;
-                    return false;
+                if ((isRiotProc || isRiotTitle) && isChromiumClass) {
+                    int score = 10;
+                    if (name.Contains("ux")) score += 30;
+                    if (isRiotTitle) score += 40;
+                    if (cls == "Chrome_WidgetWin_1") score += 25;
+                    score += Math.Min((width * height) / 50000, 30);
+
+                    candidates.Add(new WindowCandidate {
+                        Hwnd = hWnd,
+                        Score = score,
+                        Width = width,
+                        Height = height
+                    });
                 }
             } catch {}
             return true;
         }, IntPtr.Zero);
-        return found;
+
+        if (candidates.Count == 0) return IntPtr.Zero;
+        candidates.Sort((a, b) => b.Score.CompareTo(a.Score));
+        return candidates[0].Hwnd;
     }
 
     public static bool ActivateWindowSafely(IntPtr targetHwnd) {
         if (targetHwnd == IntPtr.Zero) return false;
-        IntPtr fgHwnd = GetForegroundWindow();
-        if (fgHwnd == targetHwnd) return true;
 
+        // Bypass Windows foreground lock using simulated ALT key
+        keybd_event(VK_MENU, 0, 0, UIntPtr.Zero);
+        keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+
+        IntPtr fgHwnd = GetForegroundWindow();
         uint fgPid;
         uint fgThread = fgHwnd != IntPtr.Zero ? GetWindowThreadProcessId(fgHwnd, out fgPid) : 0;
         uint curThread = GetCurrentThreadId();
@@ -413,7 +483,15 @@ public class RiotInputGuard {
         if (fgThread != 0 && fgThread != curThread) AttachThreadInput(curThread, fgThread, true);
         if (targetThread != 0 && targetThread != curThread) AttachThreadInput(curThread, targetThread, true);
 
-        ShowWindow(targetHwnd, 9); // SW_RESTORE
+        if (IsIconic(targetHwnd)) {
+            ShowWindow(targetHwnd, 9); // SW_RESTORE
+        } else {
+            ShowWindow(targetHwnd, 5); // SW_SHOW
+        }
+
+        SetWindowPos(targetHwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+        SetWindowPos(targetHwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+
         BringWindowToTop(targetHwnd);
         bool ok = SetForegroundWindow(targetHwnd);
 
@@ -441,50 +519,13 @@ public class RiotInputGuard {
         }
     }
 
-    public static void FocusUsernameField(IntPtr hWnd) {
-        RECT r;
-        GetWindowRect(hWnd, out r);
-        int w = r.Right - r.Left;
-        int h = r.Bottom - r.Top;
-        if (w < 350 || h < 250) return;
-
-        // In Riot Client, the login sidebar is 400px wide docked on the left.
-        // Username input field center is reliably at X = r.Left + 200, Y = r.Top + 245.
-        // This is safely positioned above password (315) and well away from social buttons (>= 390).
-        int targetX = r.Left + 200;
-        int targetY = r.Top + 245;
-
-        POINT orig;
-        GetCursorPos(out orig);
-        SetCursorPos(targetX, targetY);
-        Thread.Sleep(50);
-        mouse_event(0x0002, 0, 0, 0, IntPtr.Zero); // LEFTDOWN
+    public static void ClickAt(int x, int y) {
+        SetCursorPos(x, y);
         Thread.Sleep(40);
-        mouse_event(0x0004, 0, 0, 0, IntPtr.Zero); // LEFTUP
-        Thread.Sleep(50);
-        SetCursorPos(orig.X, orig.Y);
-    }
-
-    public static void FocusPasswordField(IntPtr hWnd) {
-        RECT r;
-        GetWindowRect(hWnd, out r);
-        int w = r.Right - r.Left;
-        int h = r.Bottom - r.Top;
-        if (w < 350 || h < 250) return;
-
-        // In Riot Client, the password input field is directly below username at Y = r.Top + 315.
-        int targetX = r.Left + 200;
-        int targetY = r.Top + 315;
-
-        POINT orig;
-        GetCursorPos(out orig);
-        SetCursorPos(targetX, targetY);
-        Thread.Sleep(50);
         mouse_event(0x0002, 0, 0, 0, IntPtr.Zero); // LEFTDOWN
-        Thread.Sleep(40);
+        Thread.Sleep(60);
         mouse_event(0x0004, 0, 0, 0, IntPtr.Zero); // LEFTUP
-        Thread.Sleep(50);
-        SetCursorPos(orig.X, orig.Y);
+        Thread.Sleep(60);
     }
 }
 "@
@@ -496,8 +537,40 @@ if (-not $userB64 -or -not $passB64) { exit 1 }
 $user = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($userB64))
 $password = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($passB64))
 
-# Enable Per-Monitor True DPI Awareness so window rects and coordinates align with physical pixels
+# Enable Per-Monitor DPI awareness
 [RiotInputGuard]::SetProcessDPIAware() | Out-Null
+
+function Set-ClipboardSafe($text) {
+    for ($i = 0; $i -lt 8; $i++) {
+        try {
+            [System.Windows.Forms.Clipboard]::SetText($text)
+            return $true
+        } catch {
+            Start-Sleep -Milliseconds 30
+        }
+    }
+    return $false
+}
+
+function Get-ClipboardSafe() {
+    for ($i = 0; $i -lt 8; $i++) {
+        try {
+            if ([System.Windows.Forms.Clipboard]::ContainsText()) {
+                return [System.Windows.Forms.Clipboard]::GetText()
+            }
+            return ""
+        } catch {
+            Start-Sleep -Milliseconds 30
+        }
+    }
+    return ""
+}
+
+# Preserve user's original cursor position
+$origPt = New-Object RiotInputGuard+POINT
+[RiotInputGuard]::GetCursorPos([ref]$origPt) | Out-Null
+$origX = $origPt.X
+$origY = $origPt.Y
 
 # Backup existing clipboard text so user's clipboard is preserved
 $prevClipboard = $null
@@ -524,7 +597,7 @@ if ($hwnd -eq [IntPtr]::Zero) {
 [RiotInputGuard]::ActivateWindowSafely($hwnd) | Out-Null
 Start-Sleep -Milliseconds 300
 
-# --- 3. STRICT SAFETY GATE: Ensure foreground window is 100% Riot Client ---
+# --- 3. STRICT SAFETY GATE: Ensure foreground window is Riot Client ---
 $isRiot = [RiotInputGuard]::IsForegroundRiot()
 if (-not $isRiot) {
     [RiotInputGuard]::ActivateWindowSafely($hwnd) | Out-Null
@@ -537,69 +610,126 @@ if (-not $isRiot) {
     exit 3
 }
 
-# --- 4. Focus Username Field & Input via Safe Clipboard Paste ---
-[RiotInputGuard]::FocusUsernameField($hwnd)
-Start-Sleep -Milliseconds 200
-[System.Windows.Forms.SendKeys]::SendWait('^a{BACKSPACE}')
-Start-Sleep -Milliseconds 100
+$r = New-Object RiotInputGuard+RECT
+[RiotInputGuard]::GetWindowRect($hwnd, [ref]$r) | Out-Null
+$w = $r.Right - $r.Left
+$h = $r.Bottom - $r.Top
 
-[System.Windows.Forms.Clipboard]::SetText($user)
-Start-Sleep -Milliseconds 80
-[System.Windows.Forms.SendKeys]::SendWait('^v')
-Start-Sleep -Milliseconds 150
-[System.Windows.Forms.Clipboard]::Clear()
+# The login sidebar is docked on the left (typical width ~400px)
+$baseX = $r.Left + [Math]::Min(205, [int]($w * 0.22))
+if ($baseX -lt ($r.Left + 150)) { $baseX = $r.Left + 200 }
 
-# --- 5. INPUT VERIFICATION: Ensure username was entered and matches ---
-[System.Windows.Forms.SendKeys]::SendWait('^a^c')
-Start-Sleep -Milliseconds 150
-$copied = [System.Windows.Forms.Clipboard]::GetText()
-[System.Windows.Forms.Clipboard]::Clear()
+# Adaptive candidate Y offsets for username input field
+$userYOffsets = @(245, 265, 230, 285)
+$verified = $false
 
-# If nothing was copied or text mismatch, retry focus + paste once
-if (-not $copied -or $copied.Trim() -ne $user.Trim()) {
-    Start-Sleep -Milliseconds 250
-    [RiotInputGuard]::ActivateWindowSafely($hwnd) | Out-Null
-    [RiotInputGuard]::FocusUsernameField($hwnd)
-    Start-Sleep -Milliseconds 200
+# --- 4. Multi-Attempt Adaptive Username Input & Strict Verification ---
+for ($attempt = 0; $attempt -lt 4; $attempt++) {
+    if (-not [RiotInputGuard]::IsForegroundRiot()) {
+        [RiotInputGuard]::ActivateWindowSafely($hwnd) | Out-Null
+        Start-Sleep -Milliseconds 250
+    }
+    if (-not [RiotInputGuard]::IsForegroundRiot()) {
+        Start-Sleep -Milliseconds 300
+        continue
+    }
+
+    $yOffset = $userYOffsets[$attempt % $userYOffsets.Length]
+    [RiotInputGuard]::ClickAt($baseX, $r.Top + $yOffset)
+
+    # On attempt >= 2, send TAB to cycle focus directly into username if click landed nearby
+    if ($attempt -ge 2) {
+        [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+        Start-Sleep -Milliseconds 60
+    }
+
+    # Clear field
     [System.Windows.Forms.SendKeys]::SendWait('^a{BACKSPACE}')
-    Start-Sleep -Milliseconds 100
-    [System.Windows.Forms.Clipboard]::SetText($user)
-    Start-Sleep -Milliseconds 80
+    Start-Sleep -Milliseconds 60
+
+    # Paste username via clipboard
+    Set-ClipboardSafe $user | Out-Null
+    Start-Sleep -Milliseconds 60
     [System.Windows.Forms.SendKeys]::SendWait('^v')
-    Start-Sleep -Milliseconds 150
-    [System.Windows.Forms.Clipboard]::Clear()
+    Start-Sleep -Milliseconds 120
+
+    # VERIFY USERNAME IN FIELD
+    [System.Windows.Forms.SendKeys]::SendWait('^a^c')
+    Start-Sleep -Milliseconds 120
+    $copied = Get-ClipboardSafe
+
+    if ($copied -and $copied.Trim() -eq $user.Trim()) {
+        $verified = $true
+        break
+    }
+
+    # Fallback: try character SendKeys typing if paste didn't register
+    if ($attempt -eq 1 -or $attempt -eq 3) {
+        [System.Windows.Forms.SendKeys]::SendWait('^a{BACKSPACE}')
+        Start-Sleep -Milliseconds 40
+        $escapedUser = $user -replace '([+^%~(){}])', '{$1}'
+        [System.Windows.Forms.SendKeys]::SendWait($escapedUser)
+        Start-Sleep -Milliseconds 100
+        [System.Windows.Forms.SendKeys]::SendWait('^a^c')
+        Start-Sleep -Milliseconds 100
+        $copied2 = Get-ClipboardSafe
+        if ($copied2 -and $copied2.Trim() -eq $user.Trim()) {
+            $verified = $true
+            break
+        }
+    }
+
+    Start-Sleep -Milliseconds 350
 }
 
-# --- 6. Focus Password Field & Input via Safe Clipboard Paste ---
-if (-not [RiotInputGuard]::IsForegroundRiot()) { exit 4 }
-[RiotInputGuard]::FocusPasswordField($hwnd)
-Start-Sleep -Milliseconds 150
-[System.Windows.Forms.SendKeys]::SendWait('^a{BACKSPACE}')
-Start-Sleep -Milliseconds 100
+# Strict Failure Detection: If username could not be verified in field, abort!
+if (-not $verified) {
+    if ($prevClipboard) { Set-ClipboardSafe $prevClipboard | Out-Null }
+    if ($origX -ge 0 -and $origY -ge 0) { [RiotInputGuard]::SetCursorPos($origX, $origY) }
+    Write-Output "ERR_INPUT_NOT_VERIFIED"
+    exit 4
+}
 
-[System.Windows.Forms.Clipboard]::SetText($password)
+# --- 5. Focus Password Field & Input via TAB and Click ---
+if (-not [RiotInputGuard]::IsForegroundRiot()) {
+    [RiotInputGuard]::ActivateWindowSafely($hwnd) | Out-Null
+    Start-Sleep -Milliseconds 200
+}
+
+# In Riot Client web form, pressing TAB from the verified username field focuses password
+[System.Windows.Forms.SendKeys]::SendWait('{TAB}')
 Start-Sleep -Milliseconds 80
-[System.Windows.Forms.SendKeys]::SendWait('^v')
-Start-Sleep -Milliseconds 150
-# Clean clipboard immediately so plain text password never lingers in memory/clipboard history
-[System.Windows.Forms.Clipboard]::Clear()
 
-# --- 7. Direct Form Submission ---
-# In Riot Client's login form, pressing ENTER in the password field invokes the hidden
-# <input type="submit" name="do_not_delete_used_to_capture_enter_key"> to submit credentials.
-# We NEVER send TAB or SPACE after password, strictly preventing navigation into
-# third-party social logins (Facebook, Google, Apple, Xbox).
+# Also click password field coordinate for redundancy
+[RiotInputGuard]::ClickAt($baseX, $r.Top + 315)
+Start-Sleep -Milliseconds 80
+
+[System.Windows.Forms.SendKeys]::SendWait('^a{BACKSPACE}')
+Start-Sleep -Milliseconds 60
+
+Set-ClipboardSafe $password | Out-Null
+Start-Sleep -Milliseconds 60
+[System.Windows.Forms.SendKeys]::SendWait('^v')
+Start-Sleep -Milliseconds 120
+
+# Clean password from clipboard immediately
+try { [System.Windows.Forms.Clipboard]::Clear() } catch {}
+
+# --- 6. Direct Form Submission ---
 if ([RiotInputGuard]::IsForegroundRiot()) {
-    Start-Sleep -Milliseconds 100
+    Start-Sleep -Milliseconds 80
     [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
 }
 
-# Restore user's previous clipboard text so it is not permanently destroyed
-try {
-    if ($prevClipboard) {
-        [System.Windows.Forms.Clipboard]::SetText($prevClipboard)
-    }
-} catch {}
+# Restore user's previous clipboard
+if ($prevClipboard) {
+    Set-ClipboardSafe $prevClipboard | Out-Null
+}
+
+# Restore mouse cursor back to original position
+if ($origX -ge 0 -and $origY -ge 0) {
+    [RiotInputGuard]::SetCursorPos($origX, $origY)
+}
 
 Write-Output "SUCCESS"
 `;
@@ -614,7 +744,6 @@ Write-Output "SUCCESS"
       ps.stdout.on('data', (d) => { output += d.toString(); });
       ps.stderr.on('data', (d) => { output += d.toString(); });
 
-      // Transmit Base64-encoded credentials to avoid any character corruption or newline issues
       const userB64 = Buffer.from(username, 'utf-8').toString('base64');
       const passB64 = Buffer.from(pass, 'utf-8').toString('base64');
 
@@ -629,7 +758,11 @@ Write-Output "SUCCESS"
         } else if (output.includes('ERR_FOCUS_PROTECTED')) {
           onStatus?.('Safety Shield: Keystrokes were blocked because Riot Client was not focused.');
           resolve(false);
+        } else if (output.includes('ERR_INPUT_NOT_VERIFIED')) {
+          onStatus?.('Input guard: Username field could not be focused or verified after multiple attempts.');
+          resolve(false);
         } else {
+          onStatus?.('Input guard: Automated credential entry did not complete.');
           resolve(false);
         }
       });

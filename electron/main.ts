@@ -257,6 +257,13 @@ function setupIpcHandlers() {
     return launcherService.forceLogoutRiotClient();
   });
 
+  ipcMain.handle('launcher:type-credentials', async (_event, accountId: string) => {
+    if (typeof accountId !== 'string' || !accountId) {
+      throw new Error('Invalid account identifier');
+    }
+    return launcherService.typeCredentialsDirectly(accountId);
+  });
+
   ipcMain.handle('riot:refresh-stats', async (_event, account: RiotAccount) => {
     if (!account || !account.id) throw new Error('Invalid account');
     const accounts = storageService.getAccounts();

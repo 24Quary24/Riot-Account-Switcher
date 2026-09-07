@@ -6,7 +6,20 @@ A secure desktop application for managing multiple Riot Games accounts across VA
 [![Platform](https://img.shields.io/badge/Platform-Windows-0078D6.svg)](https://microsoft.com/windows)
 [![Release](https://img.shields.io/github/v/release/24Quary24/Riot-Account-Switcher?color=00B2A9)](https://github.com/24Quary24/Riot-Account-Switcher/releases)
 [![Download](https://img.shields.io/badge/Download-.exe-E8402A?style=flat&logo=windows)](https://github.com/24Quary24/Riot-Account-Switcher/releases)
+[![Status](https://img.shields.io/badge/Status-Active%20Testing%20%2F%20Beta-f59e0b.svg)](https://github.com/24Quary24/Riot-Account-Switcher)
 [![Built with AI](https://img.shields.io/badge/Built%20with-Gemini%20AI-4285F4.svg?style=flat&logo=google)](https://deepmind.google/technologies/gemini/)
+
+> [!WARNING]
+> ### ⚠️ Active Testing & Beta Notice
+> **Riot Account Switcher is currently in active testing and continuous development.**
+> Due to how the official Riot Client handles OS window focus, CEF web rendering, and Windows display scaling (DPI), **automated credential typing may not always work reliably on every system or monitor configuration**, and client updates from Riot Games can alter form timings.
+> 
+> **Tips for Best Reliability:**
+> 1. **Silent Session Switching (Recommended)**: Once you log into an account through Riot Client, the app captures your persistent session tokens. Subsequent switches to that account are **100% silent and instant** without requiring mouse or keyboard inputs!
+> 2. **Auto-Type Credentials Fallback**: If Riot Client is open at the login screen and automated input was missed or blocked, simply click **"Auto-Type Credentials"** from the account card menu to immediately re-enter your credentials into the login fields.
+> 3. **Login Delay Setting**: On slower machines, increase the **Login Prompt Wait Delay** in Settings (to 5–7 seconds) to give the Riot Client window enough time to finish rendering before typing begins.
+>
+> If you encounter any bugs or input mismatches, please open an issue on GitHub!
 
 ---
 

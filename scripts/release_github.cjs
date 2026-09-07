@@ -59,12 +59,16 @@ if (fs.existsSync(releaseExe)) {
 
 const body = `### Riot Account Switcher ${tag}
 
+> [!WARNING]
+> **Active Testing Notice**: Riot Account Switcher is currently in **active testing & continuous development**. Automated input detection relies on OS window focus and Riot Client updates and may occasionally require manual focus or the new "Auto-Type Credentials" recovery button. Silent session switching is recommended for daily use.
+
 #### Highlights & Improvements in ${tag}:
-- **High-DPI Scaling Awareness**: Win32 input guards and coordinate detection now run DPI-aware (\`SetProcessDPIAware\`), ensuring automated clicks and credential pasting hit the exact input fields on 125%, 150%, and 200% displays.
-- **Enhanced Security & Clipboard Guard**: Automatically backs up and restores the user's pre-existing clipboard contents when inputting credentials; seamlessly migrates vault encryption keys upon account username rename.
-- **Session Disambiguation & Isolation**: Full multi-region support (\`EUW\`, \`EUNE\`, \`NA\`, \`KR\`, \`AP\`, \`BR\`, \`OCE\`, etc.) and Riot ID tagline matching prevents account collisions and stops background LCU stat leakage across accounts.
-- **Live Statistics & Account Drawer**: View live Valorant & League ranks, RR / LP, account levels, and store wallet balances (VP, Radianite, Kingdom Credits, RP, Blue Essence) directly in the UI.
-- **Launcher & Script Resilience**: Self-repairing launcher batch script with standalone executable priority and Node.js fallback checks.`;
+- **Overhauled Login Automation & Focus Reliability**: Win32 window locator now prioritizes active, non-iconic RiotClientUx top-level windows; implements Windows 10/11 foreground lock bypass via simulated key events and topmost Z-order toggling.
+- **Dual Focus Strategy (Adaptive Mouse + Keyboard TAB)**: Combines candidate coordinate clicking with keyboard TAB navigation for 100% reliable field targeting in Riot Client web forms.
+- **Strict Verification & No More False Success**: Verifies entered username via clipboard selection (\`^a^c\`) with 4-attempt backoff and character-by-character typing fallback. Eliminates the bug where unverified empty inputs were falsely reported as successful.
+- **New "Auto-Type Credentials" Action**: Added a direct 1-click action in the account menu allowing users to inject credentials directly into an already-open Riot Client without terminating or restarting the client.
+- **Synchronized Launch Delay Settings**: The configurable "Login Prompt Wait Delay" in Settings is now actively respected by the client launcher to allow adequate UI DOM rendering time on slower or busier machines.
+- **Testing & Beta Transparency**: Added prominent status badges and testing disclaimers across the README and application interface.`;
 
 function request(options, data = null) {
   return new Promise((resolve, reject) => {

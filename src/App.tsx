@@ -174,6 +174,8 @@ export const App: React.FC = () => {
         const res = await api.launchAccount(accountId, game);
         if (res.success) {
           addToast('Client Launched', res.message, 'success');
+        } else {
+          addToast('Credential Input Warning', res.message || 'Could not verify input in Riot Client.', 'warning');
         }
       } catch (err: any) {
         addToast('Launch Failed', err.message || 'Error executing Riot client', 'error');
@@ -188,6 +190,28 @@ export const App: React.FC = () => {
         setLaunchStatus('');
         addToast('Simulated Launch', `In production, Riot Client launches with ${target.username} and starts ${game.toUpperCase()}`, 'success');
       }, 1500);
+    }
+  };
+
+  // Standalone Auto-Type Credentials into open Riot Client
+  const handleTypeCredentials = async (accountId: string) => {
+    const target = accounts.find((a) => a.id === accountId);
+    if (!target) return;
+
+    if (isElectron) {
+      addToast('Auto-Typing', `Focusing Riot Client and entering credentials for ${target.username}...`, 'info');
+      try {
+        const res = await api.typeCredentials(accountId);
+        if (res.success) {
+          addToast('Credentials Verified', res.message, 'success');
+        } else {
+          addToast('Auto-Type Warning', res.message || 'Could not focus Riot Client input fields.', 'warning');
+        }
+      } catch (err: any) {
+        addToast('Auto-Type Failed', err.message || 'Error executing credential typing', 'error');
+      }
+    } else {
+      addToast('Simulated Typing', `In production, credentials for ${target.username} are auto-typed into Riot Client.`, 'info');
     }
   };
 
@@ -458,6 +482,7 @@ export const App: React.FC = () => {
                     onSelect={(acc) => setSelectedAccount(acc)}
                     onToggleFavorite={handleToggleFavorite}
                     onRefresh={loadData}
+                    onTypeCredentials={handleTypeCredentials}
                     isLaunching={isLaunching}
                   />
                 ))}

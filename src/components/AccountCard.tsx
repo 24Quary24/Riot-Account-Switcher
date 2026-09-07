@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, ShieldCheck, MoreVertical, Edit2, Trash2, Copy, Check, Gamepad2, Zap, Star, RotateCcw, Info } from 'lucide-react';
+import { Play, ShieldCheck, MoreVertical, Edit2, Trash2, Copy, Check, Gamepad2, Zap, Star, RotateCcw, Info, Keyboard } from 'lucide-react';
 import { RiotAccount } from '../types';
 
 interface AccountCardProps {
@@ -10,6 +10,7 @@ interface AccountCardProps {
   onSelect?: (account: RiotAccount) => void;
   onToggleFavorite?: (account: RiotAccount) => void;
   onRefresh?: () => void;
+  onTypeCredentials?: (accountId: string) => void;
   isLaunching?: boolean;
 }
 
@@ -21,6 +22,7 @@ export const AccountCard: React.FC<AccountCardProps> = ({
   onSelect,
   onToggleFavorite,
   onRefresh,
+  onTypeCredentials,
   isLaunching,
 }) => {
   const [showMenu, setShowMenu] = useState(false);
@@ -163,6 +165,17 @@ export const AccountCard: React.FC<AccountCardProps> = ({
                 }}
               >
                 <Edit2 size={13} /> Edit Account
+              </button>
+              <button
+                className="btn btn-secondary btn-sm"
+                style={{ width: '100%', justifyContent: 'flex-start', border: 'none', background: 'transparent' }}
+                onClick={() => {
+                  setShowMenu(false);
+                  onTypeCredentials?.(account.id);
+                }}
+                title="Directly enter username & password into currently open Riot Client login screen"
+              >
+                <Keyboard size={13} /> Auto-Type Credentials
               </button>
               <button
                 className="btn btn-secondary btn-sm"
