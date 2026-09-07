@@ -42,8 +42,14 @@ Riot Account Switcher eliminates the manual login/logout cycle for players with 
 - Encrypted vault backup and restore (AES-256-GCM, PBKDF2 key derivation).
 - Configuration files are written with restricted permissions (`mode: 0o600`).
 
+### Persistent Sessions & 30-Day 2FA Device Trust
+- **Full 30-Day "Remember this Device" Support**: Riot's Trusted Device ID (`tdid`) cookie is backed up and retained across account switches and logouts, so you never have to re-enter 2FA repeatedly on trusted devices.
+- **Silent Instant Switching**: Once an account has a saved session, the app switches profiles 100% silently without requiring keyboard, mouse, or credential entry.
+- **Modern PSL Engine**: Fully compatible with Riot's modern Player Security Layer (PSL) auth tokens.
+
 ### Two-Factor Authentication (2FA)
-- Mark accounts as 2FA-protected to display a badge as a reminder.
+- Auto-detects 2FA authentication state and displays a verification reminder badge.
+- When logging in, the launcher actively watches for 2FA completion in Riot Client and automatically captures the session for future silent launches.
 
 ### Regional Ping Monitor
 - Live round-trip latency checks across 9 Riot server regions (NA, EUW, EUNE, KR, AP, BR, LAN, LAS, OCE).

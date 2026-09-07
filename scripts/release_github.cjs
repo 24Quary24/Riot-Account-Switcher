@@ -60,15 +60,15 @@ if (fs.existsSync(releaseExe)) {
 const body = `### Riot Account Switcher ${tag}
 
 > [!WARNING]
-> **Active Testing Notice**: Riot Account Switcher is currently in **active testing & continuous development**. Automated input detection relies on OS window focus and Riot Client updates and may occasionally require manual focus or the new "Auto-Type Credentials" recovery button. Silent session switching is recommended for daily use.
+> **Active Testing Notice**: Riot Account Switcher is currently in **active testing & continuous development**. Automated input detection relies on OS window focus and Riot Client CEF web rendering. Silent session switching is recommended for daily use.
 
-#### Highlights & Improvements in ${tag}:
-- **Overhauled Login Automation & Focus Reliability**: Win32 window locator now prioritizes active, non-iconic RiotClientUx top-level windows; implements Windows 10/11 foreground lock bypass via simulated key events and topmost Z-order toggling.
-- **Dual Focus Strategy (Adaptive Mouse + Keyboard TAB)**: Combines candidate coordinate clicking with keyboard TAB navigation for 100% reliable field targeting in Riot Client web forms.
-- **Strict Verification & No More False Success**: Verifies entered username via clipboard selection (\`^a^c\`) with 4-attempt backoff and character-by-character typing fallback. Eliminates the bug where unverified empty inputs were falsely reported as successful.
-- **New "Auto-Type Credentials" Action**: Added a direct 1-click action in the account menu allowing users to inject credentials directly into an already-open Riot Client without terminating or restarting the client.
-- **Synchronized Launch Delay Settings**: The configurable "Login Prompt Wait Delay" in Settings is now actively respected by the client launcher to allow adequate UI DOM rendering time on slower or busier machines.
-- **Testing & Beta Transparency**: Added prominent status badges and testing disclaimers across the README and application interface.`;
+#### Highlights & Fixes in ${tag}:
+- **30-Day 2FA Trusted Device Persistence (\`tdid\`)**: Fixed a critical bug where account switching or logging out erased the Riot Client Trusted Device ID cookie. The 30-day "Remember this device" token is now permanently backed up and preserved across all account switches, ensuring Riot never prompts for 2FA repeatedly on trusted devices!
+- **Modern PSL Session Engine (Player Security Layer)**: Upgraded session detection and serialization to fully support Riot Client's modern PSL authentication (\`id_token\` & \`refresh_token\` under \`riot-client\`). Fixed the legacy bug where \`persist: null\` caused session saves to fail.
+- **Active 2FA & Login Watcher**: After typing credentials, the launcher continuously monitors authentication state in the background. The moment 2FA verification is approved or login completes, the session and trusted device tokens are instantly snapshotted for future silent 1-click launches.
+- **Pre-Switch Active Session Protection**: Automatically detects and backs up any active session on disk before switching accounts, so you never lose your active session when jumping between profiles.
+- **Instant Silent Switching**: Once an account has logged in, switching to that account is 100% silent and instantaneous without touching keyboard or mouse.
+- **Auto-Sync UI**: The dashboard automatically refreshes the "⚡ Silent" and "🛡️ 2FA" status badges as soon as sessions are captured.`;
 
 function request(options, data = null) {
   return new Promise((resolve, reject) => {

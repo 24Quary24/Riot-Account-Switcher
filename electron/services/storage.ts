@@ -27,6 +27,7 @@ export class StorageService {
   private accountsFile: string;
   private credentialsFile: string;
   private settingsFile: string;
+  private trustedDeviceFile: string;
   private fallbackKey: Buffer;
 
   constructor() {
@@ -37,10 +38,14 @@ export class StorageService {
     this.accountsFile = path.join(this.userDataDir, 'accounts.json');
     this.credentialsFile = path.join(this.userDataDir, 'credentials.vault');
     this.settingsFile = path.join(this.userDataDir, 'settings.json');
+    this.trustedDeviceFile = path.join(this.userDataDir, 'trusted_device.yaml');
 
     // Create fallback machine-derived encryption key in case safeStorage is not available
     const machineId = process.env.COMPUTERNAME || 'RiotManagerFallbackSalt';
     this.fallbackKey = crypto.scryptSync(machineId, 'riot-vault-salt-2026', 32);
+
+    // Automatically preserve 30-day 2FA trusted device ID on startup
+    this.backupTrustedDevice();
   }
 
   // --- Secure Password Encryption ---
@@ -180,7 +185,7 @@ export class StorageService {
     this.deleteAccountSession(id);
   }
 
-  // --- Session Management (Silent Login) ---
+  // --- Session Management (Silent Login & 2FA Trusted Device) ---
   public getSessionDir(accountId: string): string {
     const sessionDir = path.join(this.userDataDir, 'sessions', accountId);
     if (!fs.existsSync(sessionDir)) {
@@ -189,13 +194,188 @@ export class StorageService {
     return sessionDir;
   }
 
+  /**
+   * Helper to check whether YAML content represents an active authenticated Riot session.
+   * Supports modern PSL (Player Security Layer id_token + refresh_token) and legacy formats.
+   */
+  public isRiotSessionActive(yamlContent: string): boolean {
+    if (!yamlContent || typeof yamlContent !== 'string') return false;
+
+    // 1. Modern PSL (Player Security Layer) session check:
+    // Must have id_token and refresh_token under riot-client, and riot-client is not null
+    const hasRiotClient = yamlContent.includes('riot-client:') && !yamlContent.includes('riot-client: null');
+    const hasIdToken = yamlContent.includes('id_token:') && !yamlContent.includes('id_token: null') && !yamlContent.includes('id_token: ""');
+    const hasRefreshToken = yamlContent.includes('refresh_token:') && !yamlContent.includes('refresh_token: null') && !yamlContent.includes('refresh_token: ""');
+    if (hasRiotClient && hasIdToken && hasRefreshToken) {
+      return true;
+    }
+
+    // 2. Legacy session check (older Riot Client versions):
+    if (yamlContent.includes('riot-login:') && yamlContent.includes('persist:') && !yamlContent.includes('persist: null') && yamlContent.length > 200) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Extract 30-day 2FA Trusted Device ID block (rso-authenticator: tdid) from YAML content.
+   */
+  public extractTdidBlock(yamlContent: string): string | null {
+    if (!yamlContent || typeof yamlContent !== 'string') return null;
+    const match = yamlContent.match(/rso-authenticator:\s*\r?\n\s+tdid:[\s\S]*?value:\s*"[^"]+"/);
+    if (match) {
+      return match[0].trim();
+    }
+    return null;
+  }
+
+  /**
+   * Automatically preserve active 30-day 2FA trusted device ID to disk.
+   */
+  public backupTrustedDevice(yamlContent?: string): void {
+    try {
+      let tdidBlock: string | null = null;
+      if (yamlContent) {
+        tdidBlock = this.extractTdidBlock(yamlContent);
+      } else {
+        const riotDataDir = path.join(process.env.LOCALAPPDATA || '', 'Riot Games', 'Riot Client', 'Data');
+        const yamlPath = path.join(riotDataDir, 'RiotGamesPrivateSettings.yaml');
+        if (fs.existsSync(yamlPath)) {
+          const raw = fs.readFileSync(yamlPath, 'utf-8');
+          tdidBlock = this.extractTdidBlock(raw);
+        }
+      }
+
+      if (tdidBlock) {
+        fs.writeFileSync(this.trustedDeviceFile, tdidBlock, 'utf-8');
+      }
+    } catch (e) {
+      console.warn('Could not backup trusted device ID:', e);
+    }
+  }
+
+  /**
+   * Retrieve preserved 30-day 2FA trusted device ID from disk or existing sessions.
+   */
+  public getSavedTrustedDevice(): string | null {
+    try {
+      if (fs.existsSync(this.trustedDeviceFile)) {
+        const content = fs.readFileSync(this.trustedDeviceFile, 'utf-8');
+        if (content && content.includes('tdid:') && content.includes('value:')) {
+          return content.trim();
+        }
+      }
+
+      // Check existing account sessions for a saved tdid
+      const sessionsDir = path.join(this.userDataDir, 'sessions');
+      if (fs.existsSync(sessionsDir)) {
+        const subdirs = fs.readdirSync(sessionsDir);
+        for (const sub of subdirs) {
+          const p = path.join(sessionsDir, sub, 'RiotGamesPrivateSettings.yaml');
+          if (fs.existsSync(p)) {
+            const raw = fs.readFileSync(p, 'utf-8');
+            const found = this.extractTdidBlock(raw);
+            if (found) {
+              this.backupTrustedDevice(raw);
+              return found;
+            }
+          }
+        }
+      }
+    } catch {}
+    return null;
+  }
+
+  /**
+   * Extract account metadata from the id_token JWT inside RiotGamesPrivateSettings.yaml.
+   */
+  public extractSessionAccountInfo(yamlContent: string): {
+    username?: string;
+    riotId?: string;
+    tagline?: string;
+    puuid?: string;
+    has2fa?: boolean;
+  } | null {
+    if (!yamlContent) return null;
+    const match = yamlContent.match(/id_token:\s*"([^"]+)"/);
+    if (!match || !match[1]) return null;
+
+    try {
+      const parts = match[1].split('.');
+      if (parts.length < 2) return null;
+      const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      const jsonStr = Buffer.from(base64, 'base64').toString('utf8');
+      const payload = JSON.parse(jsonStr);
+
+      const username = payload.uname || payload.lol?.[0]?.uname;
+      const riotId = payload.acct?.game_name;
+      const tagline = payload.acct?.tag_line;
+      const puuid = payload.sub;
+      const has2fa = Boolean(payload.amr && Array.isArray(payload.amr) && payload.amr.includes('mfa'));
+
+      return { username, riotId, tagline, puuid, has2fa };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Parse active RiotGamesPrivateSettings.yaml on disk to detect which account is logged in,
+   * even if Riot Client is closed or between launches.
+   */
+  public getActiveSessionAccount(): { id?: string; username?: string; riotId?: string; tagline?: string; has2fa?: boolean } | null {
+    try {
+      const riotDataDir = path.join(process.env.LOCALAPPDATA || '', 'Riot Games', 'Riot Client', 'Data');
+      const yamlPath = path.join(riotDataDir, 'RiotGamesPrivateSettings.yaml');
+      if (!fs.existsSync(yamlPath)) return null;
+
+      const content = fs.readFileSync(yamlPath, 'utf-8');
+      if (!this.isRiotSessionActive(content)) return null;
+
+      const info = this.extractSessionAccountInfo(content);
+      if (!info) return null;
+
+      const accounts = this.getAccounts();
+      const match = accounts.find((a) => {
+        const matchUser = a.username && info.username && a.username.toLowerCase() === info.username.toLowerCase();
+        const matchRiotId = a.riotId && info.riotId && a.riotId.toLowerCase() === info.riotId.toLowerCase();
+        return matchUser || matchRiotId;
+      });
+
+      if (match) {
+        let changed = false;
+        if (info.has2fa && !match.has2fa) {
+          match.has2fa = true;
+          changed = true;
+        }
+        if (info.riotId && (!match.riotId || match.riotId === match.username)) {
+          match.riotId = info.riotId;
+          changed = true;
+        }
+        if (info.tagline && (!match.tagline || match.tagline === 'EUNE' || match.tagline === 'EUW')) {
+          match.tagline = info.tagline;
+          changed = true;
+        }
+        if (changed) {
+          this.saveAccount(match);
+        }
+        return { id: match.id, ...info };
+      }
+
+      return { ...info };
+    } catch {
+      return null;
+    }
+  }
+
   public hasSavedSession(accountId: string): boolean {
     const sessionDir = path.join(this.userDataDir, 'sessions', accountId);
     const yamlPath = path.join(sessionDir, 'RiotGamesPrivateSettings.yaml');
     if (!fs.existsSync(yamlPath)) return false;
     try {
       const content = fs.readFileSync(yamlPath, 'utf-8');
-      return content.includes('riot-login:') && !content.includes('persist: null') && content.length > 200;
+      return this.isRiotSessionActive(content);
     } catch {
       return false;
     }
@@ -208,9 +388,12 @@ export class StorageService {
       if (!fs.existsSync(yamlPath)) return false;
 
       const content = fs.readFileSync(yamlPath, 'utf-8');
-      if (!content.includes('riot-login:') || content.includes('persist: null')) {
+      if (!this.isRiotSessionActive(content)) {
         return false;
       }
+
+      // Preserve 30-day 2FA trusted device ID so 2FA is never re-prompted
+      this.backupTrustedDevice(content);
 
       const sessionDir = this.getSessionDir(accountId);
       fs.copyFileSync(yamlPath, path.join(sessionDir, 'RiotGamesPrivateSettings.yaml'));
@@ -224,11 +407,11 @@ export class StorageService {
           }
           fs.cpSync(sessionsSrc, sessionsDest, { recursive: true });
         } catch (e) {
-          // Non-critical: some SQLite cookies may have transient OS read locks
           console.warn(`Sessions dir copy warning for ${accountId}:`, e);
         }
       }
 
+      console.log(`[SESSION] Successfully saved persistent session for account ${accountId}`);
       return true;
     } catch (err) {
       console.error(`Failed to save session for ${accountId}:`, err);
@@ -241,15 +424,25 @@ export class StorageService {
       if (!this.hasSavedSession(accountId)) return false;
 
       const sessionDir = path.join(this.userDataDir, 'sessions', accountId);
+      const yamlSrc = path.join(sessionDir, 'RiotGamesPrivateSettings.yaml');
+      let content = fs.readFileSync(yamlSrc, 'utf-8');
+
+      // If the saved session YAML does not have a tdid block, but we have a trusted device backup:
+      // inject the tdid block so 2FA is never required!
+      if (!this.extractTdidBlock(content)) {
+        const backupTdid = this.getSavedTrustedDevice();
+        if (backupTdid) {
+          content = content.trimEnd() + '\n' + backupTdid + '\n';
+        }
+      }
+
       const riotDataDir = path.join(process.env.LOCALAPPDATA || '', 'Riot Games', 'Riot Client', 'Data');
       if (!fs.existsSync(riotDataDir)) {
         fs.mkdirSync(riotDataDir, { recursive: true });
       }
 
-      // 1. Restore private settings YAML
-      const yamlSrc = path.join(sessionDir, 'RiotGamesPrivateSettings.yaml');
       const yamlDest = path.join(riotDataDir, 'RiotGamesPrivateSettings.yaml');
-      fs.copyFileSync(yamlSrc, yamlDest);
+      fs.writeFileSync(yamlDest, content, 'utf-8');
 
       // 2. Restore Sessions directory
       const sessionsSrc = path.join(sessionDir, 'Sessions');
@@ -279,6 +472,7 @@ export class StorageService {
         } catch {}
       }
 
+      console.log(`[SESSION] Successfully restored persistent session for account ${accountId}`);
       return true;
     } catch (err) {
       console.error(`Failed to restore session for ${accountId}:`, err);
@@ -304,7 +498,7 @@ export class StorageService {
       const yamlPath = path.join(riotDataDir, 'RiotGamesPrivateSettings.yaml');
       if (!fs.existsSync(yamlPath)) return false;
       const content = fs.readFileSync(yamlPath, 'utf-8');
-      return content.includes('riot-login:') && !content.includes('persist: null') && content.length > 200;
+      return this.isRiotSessionActive(content);
     } catch {
       return false;
     }
@@ -314,6 +508,9 @@ export class StorageService {
    * Resets the active Riot Client session on disk to forced logged-out state.
    * This guarantees that when Riot Client starts, it CANNOT resume the old account
    * and is forced to display the clean login screen.
+   *
+   * CRITICAL FIX: PRESERVES the 30-day 2FA Trusted Device token (tdid) so that
+   * switching accounts or logging out NEVER revokes your 30-day "Remember this device" trust!
    */
   public wipeCurrentRiotSession(): boolean {
     try {
@@ -322,19 +519,40 @@ export class StorageService {
         fs.mkdirSync(riotDataDir, { recursive: true });
       }
 
-      // 1. Wipe persistent session tokens in RiotGamesPrivateSettings.yaml
       const yamlPath = path.join(riotDataDir, 'RiotGamesPrivateSettings.yaml');
-      const loggedOutYaml = `psl:\n    authorization:\n        riot-client: null\nriot-login:\n    persist: null\n`;
-      fs.writeFileSync(yamlPath, loggedOutYaml, 'utf-8');
 
-      // 2. Wipe Sessions directory
-      const sessionsDir = path.join(riotDataDir, 'Sessions');
-      if (fs.existsSync(sessionsDir)) {
-        fs.rmSync(sessionsDir, { recursive: true, force: true });
-        fs.mkdirSync(sessionsDir, { recursive: true });
+      // 1. Extract existing tdid before wiping, or use trusted_device backup
+      let tdidBlock: string | null = null;
+      if (fs.existsSync(yamlPath)) {
+        try {
+          const existingContent = fs.readFileSync(yamlPath, 'utf-8');
+          tdidBlock = this.extractTdidBlock(existingContent);
+          if (tdidBlock) {
+            this.backupTrustedDevice(existingContent);
+          }
+        } catch {}
+      }
+      if (!tdidBlock) {
+        tdidBlock = this.getSavedTrustedDevice();
       }
 
-      // 3. Remove stale lockfile if any
+      // 2. Clear authorization tokens to force clean login screen, BUT PRESERVE TDID SO 2FA IS NOT RE-PROMPTED!
+      let loggedOutYaml = `psl:\n    authorization:\n        riot-client: null\nriot-login:\n    persist: null\n`;
+      if (tdidBlock) {
+        loggedOutYaml += `${tdidBlock}\n`;
+      }
+      fs.writeFileSync(yamlPath, loggedOutYaml, 'utf-8');
+
+      // 3. Wipe Sessions directory
+      const sessionsDir = path.join(riotDataDir, 'Sessions');
+      if (fs.existsSync(sessionsDir)) {
+        try {
+          fs.rmSync(sessionsDir, { recursive: true, force: true });
+          fs.mkdirSync(sessionsDir, { recursive: true });
+        } catch {}
+      }
+
+      // 4. Remove stale lockfile if any
       const lockfilePath = path.join(
         process.env.LOCALAPPDATA || '',
         'Riot Games',

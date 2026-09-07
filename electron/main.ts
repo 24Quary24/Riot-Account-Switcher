@@ -317,14 +317,28 @@ function setupIpcHandlers() {
   });
 
   ipcMain.handle('riot:detect-current-session', async () => {
-    const session = await riotApiService.detectActiveSession();
+    let session = await riotApiService.detectActiveSession();
+    if (!session) {
+      const diskAccount = storageService.getActiveSessionAccount();
+      if (diskAccount && (diskAccount.riotId || diskAccount.username)) {
+        const accounts = storageService.getAccounts();
+        const matched = accounts.find((a) => a.id === diskAccount.id);
+        session = {
+          riotId: diskAccount.riotId || diskAccount.username || '',
+          tagline: diskAccount.tagline || matched?.region || 'EUNE',
+          puuid: (diskAccount as any).puuid || '',
+          username: diskAccount.username || '',
+          region: matched?.region || 'EUNE',
+        };
+      }
+    }
+
     if (session) {
       const accounts = storageService.getAccounts();
       const match = accounts.find((a) => {
         const matchUser = a.username && session.username && a.username.toLowerCase() === session.username.toLowerCase();
         const matchRiotId = a.riotId && session.riotId && a.riotId.toLowerCase() === session.riotId.toLowerCase();
-        const matchTag = !a.tagline || !session.tagline || a.tagline.toLowerCase() === session.tagline.toLowerCase();
-        return matchUser || (matchRiotId && matchTag);
+        return matchUser || matchRiotId;
       });
       if (match) {
         storageService.saveAccountSession(match.id);
@@ -429,24 +443,30 @@ app.whenReady().then(() => {
     mainWindow?.focus();
   });
 
-  // Background active session auto-snapshot every 15 seconds
+  // Background active session auto-snapshot every 10 seconds
   setInterval(async () => {
     try {
+      // 1. Snapshot via active disk session
+      const diskAccount = storageService.getActiveSessionAccount();
+      if (diskAccount?.id) {
+        storageService.saveAccountSession(diskAccount.id);
+      }
+
+      // 2. Snapshot via live API
       const active = await riotApiService.detectActiveSession();
       if (active) {
         const accounts = storageService.getAccounts();
         const match = accounts.find((a) => {
           const matchUser = a.username && active.username && a.username.toLowerCase() === active.username.toLowerCase();
           const matchRiotId = a.riotId && active.riotId && a.riotId.toLowerCase() === active.riotId.toLowerCase();
-          const matchTag = !a.tagline || !active.tagline || a.tagline.toLowerCase() === active.tagline.toLowerCase();
-          return matchUser || (matchRiotId && matchTag);
+          return matchUser || matchRiotId;
         });
         if (match) {
           storageService.saveAccountSession(match.id);
         }
       }
     } catch {}
-  }, 15000);
+  }, 10000);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

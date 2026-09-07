@@ -4,6 +4,7 @@ import path from 'path';
 import https from 'https';
 import { StorageService } from './storage';
 import { RiotApiService } from './riotApi';
+import { RiotAccount } from '../types';
 
 export class LauncherService {
   private storage: StorageService;
@@ -144,18 +145,30 @@ export class LauncherService {
 
     const productArg = game === 'valorant' ? 'valorant' : 'league_of_legends';
 
-    // 1. Check if the currently active Riot session already belongs to this account.
+    // 1. Snapshot the currently active Riot session on disk or via API before switching
     let isAlreadyActive = false;
     try {
+      // Check active account on disk first (works even if Riot Client was closed or chat socket is inactive)
+      const diskActive = this.storage.getActiveSessionAccount();
+      if (diskActive && diskActive.id) {
+        this.storage.saveAccountSession(diskActive.id);
+        if (diskActive.id === account.id) {
+          isAlreadyActive = true;
+        }
+      }
+
       const active = await this.riotApi.detectActiveSession();
       if (active) {
-        // Snapshot whichever account is currently active so its session is preserved
+        // Match active account from API
         const activeAccount = accounts.find((a) =>
-          (a.riotId && active.riotId && a.riotId.toLowerCase() === active.riotId.toLowerCase()) ||
-          (a.username && active.username && a.username.toLowerCase() === active.username.toLowerCase())
+          (a.username && active.username && a.username.toLowerCase() === active.username.toLowerCase()) ||
+          (a.riotId && active.riotId && a.riotId.toLowerCase() === active.riotId.toLowerCase())
         );
         if (activeAccount) {
           this.storage.saveAccountSession(activeAccount.id);
+          if (activeAccount.id === account.id) {
+            isAlreadyActive = true;
+          }
         }
 
         const sameByRiotId = active.riotId && account.riotId &&
@@ -206,7 +219,7 @@ export class LauncherService {
       // Terminate running clients WITHOUT wiping the session
       await this.closeRunningClients(false);
 
-      // Restore target account's saved session
+      // Restore target account's saved session (injects 30-day 2FA trusted device if missing)
       const restored = this.storage.restoreAccountSession(account.id);
       if (restored) {
         onStatus?.(`Launching ${game.toUpperCase()} directly...`);
@@ -239,7 +252,7 @@ export class LauncherService {
     }
 
     // 3. FIRST-TIME LOGIN OR SESSION RESET:
-    // Target account has no saved session -> MUST wipe running session so Riot Client CANNOT stay logged in to old account!
+    // Target account has no saved session -> reset session to force clean login screen (30-day 2FA trust preserved!)
     onStatus?.(`Switching to ${account.label}: logging out previous account and resetting session...`);
     await this.closeRunningClients(true);
 
@@ -276,24 +289,27 @@ export class LauncherService {
           success: false,
           message: `Riot Client opened, but could not automatically verify credentials for ${account.username}. Please ensure the login screen is visible, or use the "Auto-Type Credentials" option to retry.`,
         };
-      } else if (account.has2fa) {
-        onStatus?.('2FA Protected: Complete verification in Riot Client (session will be saved once logged in).');
-      } else {
-        onStatus?.('Credentials submitted. Waiting for home screen to load...');
-        await this.riotApi.waitForLoginCompletion(25000, onStatus);
+      }
 
-        // Automatically capture and save the session so all future launches are 100% silent!
-        const saved = this.storage.saveAccountSession(account.id);
-        if (saved) {
-          onStatus?.('Silent session saved! Future switches to this account will be 100% silent.');
-        }
+      onStatus?.(
+        account.has2fa
+          ? 'Credentials entered. Please enter 2FA verification in Riot Client and keep "Remember this device" checked...'
+          : 'Credentials submitted. Waiting for authentication...'
+      );
 
+      const maxWait = account.has2fa ? 90 : 40;
+      const loggedIn = await this.waitForLoginAndSaveSession(account, maxWait, onStatus);
+
+      if (loggedIn) {
+        onStatus?.('Authentication verified and 30-day session saved! Future switches will be 100% silent.');
         if (settings.autoLaunchGame) {
           onStatus?.('Clicking Play button...');
           await this.clickPlayButton(game, onStatus);
         } else {
           onStatus?.('Authentication complete! (Auto-launch game is disabled in Settings)');
         }
+      } else {
+        onStatus?.('Riot Client opened. When login finishes, your session will automatically be saved in the background.');
       }
     }
 
@@ -304,9 +320,79 @@ export class LauncherService {
     return {
       success: true,
       message: account.has2fa
-        ? `Credentials entered — complete 2FA in Riot Client.`
+        ? `Credentials entered — complete 2FA in Riot Client. 30-day device trust is preserved!`
         : `Switched to ${account.riotId || account.label} and launched ${game.toUpperCase()}. Session saved for future silent launches!`,
     };
+  }
+
+  /**
+   * Actively polls disk and live API for login completion.
+   * Once authenticated, captures and persists the session and backs up 30-day 2FA trusted device.
+   */
+  public async waitForLoginAndSaveSession(
+    account: RiotAccount,
+    timeoutSeconds: number = 40,
+    onStatus?: (status: string) => void
+  ): Promise<boolean> {
+    const startTime = Date.now();
+    const timeoutMs = timeoutSeconds * 1000;
+
+    while (Date.now() - startTime < timeoutMs) {
+      // 1. Check disk YAML for active authenticated session (fastest & most reliable)
+      const diskAccount = this.storage.getActiveSessionAccount();
+      if (diskAccount) {
+        const matchUser = diskAccount.username && account.username &&
+          diskAccount.username.toLowerCase() === account.username.toLowerCase();
+        const matchRiotId = diskAccount.riotId && account.riotId &&
+          diskAccount.riotId.toLowerCase() === account.riotId.toLowerCase();
+
+        if (matchUser || matchRiotId || diskAccount.id === account.id) {
+          this.storage.saveAccountSession(account.id);
+          this.storage.backupTrustedDevice();
+          account.hasSavedSession = true;
+          if (diskAccount.tagline && (!account.tagline || account.tagline === 'EUNE' || account.tagline === 'EUW')) {
+            account.tagline = diskAccount.tagline;
+          }
+          if (diskAccount.riotId) {
+            account.riotId = diskAccount.riotId;
+          }
+          if (diskAccount.has2fa) {
+            account.has2fa = true;
+          }
+          this.storage.saveAccount(account);
+          return true;
+        }
+      }
+
+      // 2. Check live Riot Client API via lockfile
+      try {
+        const live = await this.riotApi.detectActiveSession();
+        if (live) {
+          const matchLiveUser = live.username && account.username &&
+            live.username.toLowerCase() === account.username.toLowerCase();
+          const matchLiveId = live.riotId && account.riotId &&
+            live.riotId.toLowerCase() === account.riotId.toLowerCase();
+
+          if (matchLiveUser || matchLiveId) {
+            this.storage.saveAccountSession(account.id);
+            this.storage.backupTrustedDevice();
+            account.hasSavedSession = true;
+            this.storage.saveAccount(account);
+            return true;
+          }
+        }
+      } catch {}
+
+      const elapsed = Math.round((Date.now() - startTime) / 1000);
+      if (account.has2fa) {
+        onStatus?.(`Waiting for 2FA verification in Riot Client (${elapsed}s / ${timeoutSeconds}s)...`);
+      } else {
+        onStatus?.(`Waiting for Riot Client to log in (${elapsed}s)...`);
+      }
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+
+    return false;
   }
 
   /**
@@ -327,6 +413,8 @@ export class LauncherService {
 
     const typed = await this.injectCredentialsSafely(account.username, password);
     if (typed) {
+      // Monitor in background to capture the session once login completes
+      this.waitForLoginAndSaveSession(account, 60).catch(() => {});
       return {
         success: true,
         message: `Credentials for ${account.username} entered and verified in Riot Client!`,

@@ -120,6 +120,7 @@ export const App: React.FC = () => {
 
     const sessionInterval = setInterval(() => {
       checkActiveSession();
+      loadData();
     }, 6000);
 
     // Subscribe to launch status updates
@@ -183,6 +184,7 @@ export const App: React.FC = () => {
         setIsLaunching(false);
         setLaunchStatus('');
         checkActiveSession();
+        loadData();
       }
     } else {
       setTimeout(() => {
@@ -209,6 +211,9 @@ export const App: React.FC = () => {
         }
       } catch (err: any) {
         addToast('Auto-Type Failed', err.message || 'Error executing credential typing', 'error');
+      } finally {
+        checkActiveSession();
+        loadData();
       }
     } else {
       addToast('Simulated Typing', `In production, credentials for ${target.username} are auto-typed into Riot Client.`, 'info');
